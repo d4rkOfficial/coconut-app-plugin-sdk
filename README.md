@@ -4,14 +4,25 @@
 
 - **模块化源码**：按功能拆文件，`import` 随便用；注入页面的脚本单独放 `page/*.dom.js`；
 - **Deno 一键打包**：esbuild 把整份源码压成启动器能加载的**单文件**（压缩 + 头部元数据）；
-- **现成示例**：本机正在用的插件源码（`buff-coverage` / `echo-substat-optimizer` / `cjk-scramble`）
-  - 官方内置的 `free-models`（多文件范本）；
+- **现成示例**：本机正在用的插件源码（`buff-coverage` / `echo-substat-optimizer` / `cjk-scramble`），
+  外加官方内置的 `free-models`（多文件范本）；
 - **热重载**：`deno task dev <id>` 保存即打包并写进启动器插件目录，3 秒内生效；
-- **静态自查 + 冒烟测试**：权限/头部/钩子/禁用 API 检查，`.dom.js` 自包含检查， 以及用「假宿主 +
-  假页面」跑打包产物的回归测试。
+- **静态自查 + 冒烟测试**：权限 / 头部 / 钩子 / 禁用 API 检查、`.dom.js` 自包含检查，
+  以及用「假宿主 + 假页面」跑打包产物的回归测试。
 
-> 启动器本体（Tauri 外壳 + 工具箱静态包）在另一个仓库，本仓库只做插件侧。 API 规范看
-> [`docs/plugin-api.md`](docs/plugin-api.md)，干活规则看 [`AGENTS.md`](AGENTS.md)。
+> 启动器本体（Tauri 外壳 + 工具箱静态包）在另一个仓库，本仓库只做插件侧。
+> API 规范看 [`docs/plugin-api.md`](docs/plugin-api.md)，干活规则看 [`AGENTS.md`](AGENTS.md)。
+
+## 相关仓库
+
+| 仓库 | 是什么 |
+| --- | --- |
+| [`coconut-app-plugin-sdk`](https://github.com/D4rK6/coconut-app-plugin-sdk) | **本仓库**：插件开发 SDK（示例 + 打包 / 热部署 / 自查 / 测试） |
+| [`coconut-app`](https://github.com/d4rkOfficial/coconut-app) | 启动器本体（Tauri）：插件宿主、`Coconut` API、`plugin-api/` 类型的上游 |
+| [`wuwa-afyg-tool`](https://github.com/d4rkOfficial/wuwa-afyg-tool) | 工具箱本体（SvelteKit）：插件调用的 WS 工具都来自这里 |
+| [`wuwa-afyg-share`](https://github.com/d4rkOfficial/wuwa-afyg-share) | 椰果工坊：[启动器下载页](https://wuwa-afyg-share.200503.xyz/launcher) 与工程分享站 |
+
+装启动器 / 给别人下载入口：<https://wuwa-afyg-share.200503.xyz/launcher>。
 
 ## 环境
 

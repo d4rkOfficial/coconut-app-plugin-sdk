@@ -145,7 +145,9 @@ const data = JSON.parse(raw);
 - **插件日志**：`%APPDATA%\com.coconut.launcher\logs\plugins.log`（每次打开工具箱换新文件， 旧的滚成
   `plugins-<时间>.log`，保留最近 10 份）。
 - **只读 Console**：工具箱页面 `Ctrl+T`（或 `` Ctrl+` ``），「插件日志 / 启动器日志」两栏。
-- **插件弹窗**：启动页「插件」列表能看启停 / 重载 / 错误次数 / 最后一次错误；删文件请自己进目录。
+- **插件弹窗**：标题栏右上角 ✕ / `Esc` 关闭；可按名称 / id / 描述 / 权限搜索，按
+  「全部 / 已启用 / 已停用 / 异常」筛选，一键全部启用 / 全部停用；每行是启用开关 + 重载，
+  错误次数和最后一次错误直接显示在行内（删文件请自己进插件目录）。
 - **状态文件**：`plugins/state.json`（启用状态）、`plugins/storage/<id>.json`（插件存储）。
 - **启动器 panic**：`%APPDATA%\com.coconut.launcher\panic.log`。
 - 改完先 `deno task check`，再 `deno task build`（`build:plain` 排错），再 `deno task test`。
