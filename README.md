@@ -17,7 +17,7 @@
 
 | 仓库 | 是什么 |
 | --- | --- |
-| [`coconut-app-plugin-sdk`](https://github.com/D4rK6/coconut-app-plugin-sdk) | **本仓库**：插件开发 SDK（示例 + 打包 / 热部署 / 自查 / 测试） |
+| [`coconut-app-plugin-sdk`](https://github.com/d4rkOfficial/coconut-app-plugin-sdk) | **本仓库**：插件开发 SDK（示例 + 打包 / 热部署 / 自查 / 测试） |
 | [`coconut-app`](https://github.com/d4rkOfficial/coconut-app) | 启动器本体（Tauri）：插件宿主、`Coconut` API、`plugin-api/` 类型的上游 |
 | [`wuwa-afyg-tool`](https://github.com/d4rkOfficial/wuwa-afyg-tool) | 工具箱本体（SvelteKit）：插件调用的 WS 工具都来自这里 |
 | [`wuwa-afyg-share`](https://github.com/d4rkOfficial/wuwa-afyg-share) | 椰果工坊：[启动器下载页](https://wuwa-afyg-share.200503.xyz/launcher) 与工程分享站 |
