@@ -72,8 +72,8 @@ deno task dev echo-substat-optimizer   # 监听源码并自动部署到启动器
 ```text
 coconut-app-plugin-sdk/
   AGENTS.md                     ← 人 / AI 都先读这个：硬规则 + 流程 + 自检清单
-  docs/plugin-api.md            ← 上游 API 规范原文（Coconut.* 全部细节）
-  plugin-api/                   ← API 类型声明（从上游同步，勿手改）
+  docs/plugin-api.md            ← API 规范原文（Coconut.* 全部细节）
+  plugin-api/                   ← API 类型声明（本仓库为准；tools.d.ts 为生成物）
     coconut-plugin.d.ts         ← Coconut / 钩子 / 权限类型
     tools.d.ts                  ← 工具箱 WS 工具的类型（自动生成）
     generate-tools.mjs          ← 重新生成 tools.d.ts
@@ -137,10 +137,12 @@ const result = await Coconut.runJs(pageCall(applyThing, someData));
 - **权限**由 Rust 侧硬校验，`@permissions` 没写的 API 一调就抛错。
 - **钩子** 10 秒上限；连续 3 次抛错自动停用（卡片标红并显示最后一次错误）。
 
-## 同步上游
+## 与启动器同步
 
-- `plugin-api/*`、`docs/plugin-api.md` 来自上游 `coconut-app` 仓库，**不要手改**、也不要格式化；
-  工具箱更新后跑 `deno task tools` 重新生成 `tools.d.ts`。
+- 插件 API 的**类型声明与生成脚本现在以本仓库为准**（`plugin-api/`）：启动器仓库的 `main`
+  分支已移除同目录，`plugin-api` 分支只留一个指向这里的链接。
+- 启动器改了 `Coconut` / 工具行为时，同步改这里：`plugin-api/coconut-plugin.d.ts`（手写）、
+  `docs/plugin-api.md`（规范原文）、`plugin-api/tools.d.ts`（只跑 `deno task tools` 重新生成）。
 - 想把自己在启动器里改过的插件纳入版本管理：`deno task pull <id>`。
 
 ## 注意

@@ -39,8 +39,8 @@ examples/<id>/*.js        ← 按功能拆的模块（state / api / render / syn
 examples/<id>/page/*.dom.js ← 注入页面的自包含函数
 examples/<id>/page/run.js   ← pageCall：把页面函数序列化成 runJs 代码
 templates/plugin/index.js   ← `deno task new` 用的骨架
-plugin-api/*.d.ts           ← API 类型（上游同步，勿手改勿格式化）
-docs/plugin-api.md          ← 上游 API 规范原文
+plugin-api/*.d.ts           ← API 类型（本仓库为准；tools.d.ts 只由 deno task tools 生成）
+docs/plugin-api.md          ← API 规范原文
 scripts/*.ts                ← build / dev / deploy / pull / new / check / test / clean
 dist/<id>.js                ← 产物（gitignored）
 ```
@@ -188,8 +188,8 @@ deno task verify            # 或者一把梭：fmt + lint + check + typecheck +
 
 - **不要擅自运行 `deno task dev` / `deno task deploy`**：它们会覆盖启动器插件目录里用户正在用的
   插件。需要真机验证先和用户确认，或 `--dir` 指到空目录。
-- **不要手改/格式化** `plugin-api/*`、`docs/plugin-api.md`（上游同步产物）；`tools.d.ts` 只跑
-  `deno task tools` 重新生成。
+- `plugin-api/` 与 `docs/plugin-api.md` 已由本仓库维护（启动器 `main` 不再带这个目录）；
+  `tools.d.ts` 只跑 `deno task tools` 重新生成，别手改。
 - 不要「顺手重构」示例的行为——它们是用户正在用的插件，改动要有明确需求；
   纯拆分/搬文件时必须保证行为等价，并用 `deno task test` 验证。
 - 不要引入运行时依赖（QuickJS 里没有 Node 环境）；esbuild 只作为构建期依赖。
