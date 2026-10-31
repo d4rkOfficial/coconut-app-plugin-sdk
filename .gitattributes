@@ -1,0 +1,8 @@
+# 统一用 LF：Deno / esbuild / 插件产物都按 LF 处理，避免 Windows 上被转成 CRLF
+* text=auto eol=lf
+
+# 二进制
+*.png binary
+*.ico binary
+*.webp binary
+*.woff2 binary

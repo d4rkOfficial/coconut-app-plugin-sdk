@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: 类型检查
+        run: deno task typecheck
+      - name: 格式 + lint
+        run: deno fmt --check && deno lint
+      - name: 静态自查（头部 / 权限 / 钩子 / 禁用 API / .dom.js 自包含）
+        run: deno task check:strict
+      - name: 打包（压缩后的单文件）
+        run: deno task build
+      - name: 冒烟测试（假宿主 + 假页面）
+        run: deno task test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugins
+          path: dist/*.js
+          if-no-files-found: error
