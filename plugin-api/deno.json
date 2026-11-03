@@ -21,6 +21,6 @@
     "check": "deno check .",
     "fmt": "deno fmt",
     "lint": "deno lint",
-    "tools": "node generate-tools.mjs"
+    "tools": "deno run -A generate-tools.ts"
   }
 }

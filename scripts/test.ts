@@ -410,6 +410,27 @@ function loadPlugin(id: string, engine: Engine, page: FakePage): Loaded {
       visible: () => true,
       injectCss: () => true,
     },
+    http: {
+      createServer: (options?: { port?: number }) => {
+        const listeners = new Map<string, Array<(...args: unknown[]) => unknown>>();
+        const server = {
+          id: 1,
+          port: Number(options?.port || 47830),
+          close: () => true,
+          addEventListener: (type: string, listener: (...args: unknown[]) => unknown) => {
+            const list = listeners.get(type) || [];
+            list.push(listener);
+            listeners.set(type, list);
+            return server;
+          },
+          __listeners: (type: string) => listeners.get(type) || [],
+        };
+        return server;
+      },
+    },
+    webSocket: () => {
+      throw new Error('测试宿主没有 WebSocket 客户端');
+    },
     launcher: { lang: 'zh-Hans', toolboxVersion: 'test', gameVersion: 'test' },
     src: {
       toolbox: { dir: '', url: 'http://toolbox.local/' },
@@ -532,7 +553,7 @@ async function testFreeModels() {
     fetch: () => ({
       status: 200,
       ok: true,
-      json: { data: [{ id: 'free-a' }, { id: 'free-b' }] },
+      json: { data: [{ id: 'free-a-free' }, { id: 'free-b-free' }] },
       body: '',
     }),
   }, page);

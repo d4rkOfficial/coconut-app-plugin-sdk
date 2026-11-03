@@ -1,6 +1,6 @@
-// 由 plugin-api/generate-tools.mjs 自动生成，请勿手改。
-// 工具箱包体：version 1793258457610（2026-10-29 生成）
-// 工具箱更新后重新跑：node plugin-api/generate-tools.mjs
+// 由 plugin-api/generate-tools.ts 自动生成，请勿手改。
+// 工具箱包体：version 1792505960276（2026-11-03 生成）
+// 工具箱更新后重新跑：deno task tools
 
 /** 每个 WS 工具的入参（来自工具箱自己的 JSON Schema）。 */
 export interface CoconutToolParams {

@@ -60,6 +60,8 @@ const PERMISSION_USAGE: Array<[string, RegExp]> = [
   ['ui', /\bCoconut\s*\.\s*ui\s*\./],
   ['toolbox', /\bCoconut\s*\.\s*callTool\s*\(/],
   ['network', /\bCoconut\s*\.\s*fetch\s*\(/],
+  ['network', /\bCoconut\s*\.\s*webSocket\s*\(/],
+  ['server', /\bCoconut\s*\.\s*http\s*(?:\(|\.)/],
   ['storage', /\bCoconut\s*\.\s*storage\s*\./],
 ];
 

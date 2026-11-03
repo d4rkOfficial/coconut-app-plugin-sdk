@@ -82,25 +82,33 @@ dist/<id>.js                ← 产物（gitignored）
 | `network` | `Coconut.fetch`                                    | 由启动器代发 HTTP（无 CORS）                    |
 | `storage` | `Coconut.storage.*`                                | 插件私有 KV（落盘 `plugins/storage/<id>.json`） |
 | `ui`      | `Coconut.ui.*`（`overlay`/`injectCss` 另需 `dom`） | 浮层、注入 CSS                                  |
+| `server`  | `Coconut.http.createServer`                        | 开本地 HTTP / WebSocket 服务（事件对象）        |
 | `debug`   | `onEvent` 里的原始 WS 帧                           | 只在开发时开，发布前删                          |
 
 `Coconut.log` / `console.*` / 定时器不需要权限。`deno task check` 会用文本匹配核对 「用了 API ⇄
 声明了权限」，报错就补 `@permissions`。
 
+`Coconut` 本身是事件对象：`Coconut.addEventListener('start'|'hello'|'event'|'stop', fn)`
+与四个全局钩子等价，可叠加、可 `removeEventListener`。`Coconut.http.createServer()` 与
+`Coconut.webSocket(url)` 返回的也都是同一种事件对象。
+
 ## 5. `Coconut` 速查
 
-| 成员                             | 说明                                                                            |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `Coconut.plugin`                 | `{ id, name, version, mount, permissions }`，只读                               |
-| `Coconut.runJs(code)`            | 页面里执行**函数体**（自己 `return`），返回字符串（异步页面脚本也等得到结果）   |
-| `Coconut.callTool(name, args?)`  | 调工具箱工具，返回 `unknown`；报错抛异常                                        |
-| `Coconut.fetch(url, opts?)`      | `{ status, ok, headers, body, json }`；无超时参数                               |
-| `Coconut.storage`                | `get/set/delete/all`；值必须 JSON 可序列化                                      |
-| `Coconut.ui`                     | `overlay({html,css})` → id；`show/hide/visible/remove(id)`；`injectCss(id,css)` |
-| `Coconut.launcher`               | `lang` / `toolboxVersion` / `gameVersion`                                       |
-| `Coconut.src`                    | `toolbox.{dir,url}`、`static.{dir,url}`（给 `fetch` / `<img src>` 用 `.url`）   |
-| `Coconut.log(...)` / `console.*` | 写插件日志；`Coconut.log` 用 `String()` 拼参（对象会变 `[object Object]`）      |
-| `Coconut.sleep(ms)` / 定时器     | 定时器回调**不带参数**                                                          |
+| 成员                              | 说明                                                                             |
+| --------------------------------- | -------------------------------------------------------------------------------- |
+| `Coconut.plugin`                  | `{ id, name, version, mount, permissions }`，只读                                |
+| `Coconut.runJs(code)`             | 页面里执行**函数体**（自己 `return`），返回字符串（异步页面脚本也等得到结果）    |
+| `Coconut.callTool(name, args?)`   | 调工具箱工具，返回 `unknown`；报错抛异常                                         |
+| `Coconut.fetch(url, opts?)`       | `{ status, ok, headers, body, json }`；无超时参数                                |
+| `Coconut.http.createServer(opts)` | 返回事件对象：`request` / `connection`；`port` / `close()`；需要 `server`        |
+| `Coconut.webSocket(url)`          | 返回事件对象：`open` / `message` / `close`；`send()` / `close()`；需要 `network` |
+| `Coconut.addEventListener`        | 生命周期事件 `start` / `hello` / `event` / `stop`，配 `removeEventListener`      |
+| `Coconut.storage`                 | `get/set/delete/all`；值必须 JSON 可序列化                                       |
+| `Coconut.ui`                      | `overlay({html,css})` → id；`show/hide/visible/remove(id)`；`injectCss(id,css)`  |
+| `Coconut.launcher`                | `lang` / `toolboxVersion` / `gameVersion`                                        |
+| `Coconut.src`                     | `toolbox.{dir,url}`、`static.{dir,url}`（给 `fetch` / `<img src>` 用 `.url`）    |
+| `Coconut.log(...)` / `console.*`  | `Coconut.log` 写日志文件；`console.*` 只进内置调试终端（`console.clear` 清空）   |
+| `Coconut.sleep(ms)` / 定时器      | 定时器回调**不带参数**                                                           |
 
 浮层要点：容器铺满视口且 **`pointer-events: none`**（要点击的元素自己写 `auto`）； **z-index
 由引擎编排**（后注册的盖住先注册的），插件不能也不该指定层级。
@@ -142,9 +150,10 @@ const data = JSON.parse(raw);
 
 ## 8. 调试
 
-- **插件日志**：`%APPDATA%\com.coconut.launcher\logs\plugins.log`（每次打开工具箱换新文件， 旧的滚成
-  `plugins-<时间>.log`，保留最近 10 份）。
-- **只读 Console**：工具箱页面 `Ctrl+T`（或 `` Ctrl+` ``），「插件日志 / 启动器日志」两栏。
+- **插件日志**：`%APPDATA%\com.coconut.launcher\logs\plugins.log`，只有 `Coconut.log` 写这里
+  （每次打开工具箱换新文件，旧的滚成 `plugins-<时间>.log`，保留最近 10 份）。
+- **调试终端**：工具箱页面 `Ctrl+T`（或 `` Ctrl+` ``），可读写；`console.*` 只进这里， `Tab`
+  切换插件层 / DOM 层，括号闭合回车运行、未闭合回车换行。
 - **插件弹窗**：标题栏右上角 ✕ / `Esc` 关闭；可按名称 / id / 描述 / 权限搜索，按 「全部 / 已启用 /
   已停用 / 异常」筛选，一键全部启用 / 全部停用；每行是启用开关 + 重载，
   错误次数和最后一次错误直接显示在行内（删文件请自己进插件目录）。
@@ -154,19 +163,19 @@ const data = JSON.parse(raw);
 
 ## 9. 常见坑
 
-| 症状                                      | 原因 / 处理                                                        |
-| ----------------------------------------- | ------------------------------------------------------------------ |
-| 插件「加载失败」                          | 语法错误、带 BOM、头部被顶掉 → `deno task check <id>`              |
-| 钩子完全没被调用                          | 写成 `const onHello = …`，或产物里没挂 `globalThis.onHello`        |
-| 打包后不执行但源码没事                    | 忘了 `globalThis.onX = onX`（IIFE 作用域）                         |
-| `runJs` 返回 `"null"`                     | 代码里没有 `return`；它永远返回字符串，对象要自己 `JSON.stringify` |
-| 报「工具箱页面还没打开」                  | 在 `onStart` 里 `runJs` 了；挪到 `onHello` 或轮询重试              |
-| 页面脚本报 `x is not defined`             | `.dom.js` 引用了模块作用域变量/忘了传参 → 改成参数传入             |
-| 连续 3 次报错被停用                       | 钩子抛异常；卡片上看最后一次错误，修完点「启用」                   |
-| 钩子「超过 10s 未返回」                   | 死循环 / 等不会完成的 Promise；用定时器别忙等                      |
-| `Coconut.log(obj)` 打出 `[object Object]` | 用 `console.log` 或先 `JSON.stringify`                             |
-| 浮层里的按钮点了没反应                    | 浮层默认 `pointer-events: none`，交互元素加 `auto`                 |
-| 改了文件没生效                            | 启动器 3 秒扫描；也可以点「重载」/「重新扫描」                     |
+| 症状                                      | 原因 / 处理                                                         |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| 插件「加载失败」                          | 语法错误、带 BOM、头部被顶掉 → `deno task check <id>`               |
+| 钩子完全没被调用                          | 写成 `const onHello = …`，或产物里没挂 `globalThis.onHello`         |
+| 打包后不执行但源码没事                    | 忘了 `globalThis.onX = onX`（IIFE 作用域）                          |
+| `runJs` 返回 `"null"`                     | 代码里没有 `return`；它永远返回字符串，对象要自己 `JSON.stringify`  |
+| 报「工具箱页面还没打开」                  | 在 `onStart` 里 `runJs` 了；挪到 `onHello` 或轮询重试               |
+| 页面脚本报 `x is not defined`             | `.dom.js` 引用了模块作用域变量/忘了传参 → 改成参数传入              |
+| 连续 3 次报错被停用                       | 钩子抛异常；卡片上看最后一次错误，修完点「启用」                    |
+| 钩子「超过 10s 未返回」                   | 死循环 / 等不会完成的 Promise；用定时器别忙等                       |
+| `Coconut.log(obj)` 打出 `[object Object]` | 用 `Coconut.log(JSON.stringify(obj))`，或 `console.log`（只进终端） |
+| 浮层里的按钮点了没反应                    | 浮层默认 `pointer-events: none`，交互元素加 `auto`                  |
+| 改了文件没生效                            | 启动器 3 秒扫描；也可以点「重载」/「重新扫描」                      |
 
 ## 10. 完成前自检（必须全过）
 

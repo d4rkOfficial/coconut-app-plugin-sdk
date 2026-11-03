@@ -12,7 +12,7 @@ export const templatesDir = join(repoRoot, 'templates');
 export const distDir = join(repoRoot, 'dist');
 
 /** 允许出现在 `@permissions` 里的权限名（与 coconut-plugin.d.ts 保持一致）。 */
-export const PERMISSIONS = ['dom', 'toolbox', 'network', 'storage', 'ui', 'debug'];
+export const PERMISSIONS = ['dom', 'toolbox', 'network', 'storage', 'ui', 'server', 'debug'];
 /** 允许出现在 `@mount` 里的取值。 */
 export const MOUNTS = ['none', 'overlay'];
 

@@ -1,8 +1,8 @@
 /**
- * 配置（AI profile）层面的原子操作：识别托管配置、增删改、拉模型列表、去重。
+ * 配置（AI profile）层面的原子操作：识别托管配置、增删改、去重。
  * 只管「一条配置怎么读写」，不管什么时候同步（那是 sync.js 的事）。
  */
-import { BASE_URL, LEGACY_PREFIX, MANAGED_LABEL, MANAGED_PREFIX, PUBLIC_KEY } from './constants.js';
+import { LEGACY_PREFIX, MANAGED_LABEL, MANAGED_PREFIX, PUBLIC_KEY } from './constants.js';
 import { log } from './log.js';
 
 /** 这条配置是不是本插件写入的托管配置。 */
@@ -17,11 +17,11 @@ function isEmptyProfile(profile) {
 }
 
 /** 托管配置的固定字段。 */
-export function profileFields(model) {
+export function profileFields(model, baseUrl) {
   return {
-    baseUrl: BASE_URL,
+    baseUrl,
     model,
-    // 真实 Key 由启动器代理兜底：这里的 public 不是合法 Key，代理会换成用户存的那把。
+    // 真实 Key 由插件的 Authorization 透传兜底：这里的 public 不是合法 Key。
     apiKey: PUBLIC_KEY,
     maxToolRounds: 48,
     directRequest: false,
@@ -70,18 +70,6 @@ export function dedupeManaged() {
   return removed;
 }
 
-/** 拿启动器免费代理的模型列表（刚启动时列表可能还没就绪，会重试几次）。 */
-export async function fetchModels() {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const payload = Coconut.fetch(`${BASE_URL}/models`, {});
-    const list = (payload && payload.json && payload.json.data) || [];
-    const ids = list.map((item) => String(item.id)).filter(Boolean);
-    if (ids.length) return ids;
-    await Coconut.sleep(1200);
-  }
-  return [];
-}
-
 /** 写工具箱设置（比如 ai_enabled）。 */
 export function setSetting(key, value) {
   try {
@@ -92,7 +80,7 @@ export function setSetting(key, value) {
 }
 
 /** 把当前模型列表同步进工具箱，返回增/改/删的条数。 */
-export function syncModels(models) {
+export function syncModels(models, baseUrl) {
   const state = Coconut.callTool('get_ai_profiles', {}) || {};
   const profiles = state.profiles || [];
   const managed = profiles.filter(isManaged);
@@ -107,14 +95,14 @@ export function syncModels(models) {
         action: 'update',
         id: profile.id,
         label: MANAGED_LABEL,
-        ...profileFields(model),
+        ...profileFields(model, baseUrl),
       });
       updated += 1;
     } else {
       Coconut.callTool('manage_ai_profile', {
         action: 'add',
         label: MANAGED_LABEL,
-        ...profileFields(model),
+        ...profileFields(model, baseUrl),
       });
       added += 1;
     }

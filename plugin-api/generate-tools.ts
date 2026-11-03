@@ -1,13 +1,13 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S deno run -A
 /**
  * 从工具箱的打包产物里抽出 WS 工具清单，生成 `tools.d.ts`。
  *
- * 用法（node 18+，无依赖）：
- *   node plugin-api/generate-tools.mjs                # 自动找启动器数据目录里的最新工具箱
- *   node plugin-api/generate-tools.mjs --dir <目录>    # 指定 toolbox-static 目录
- *   node plugin-api/generate-tools.mjs --out <文件>    # 指定输出（默认 plugin-api/tools.d.ts）
+ * 用法（Deno ≥ 2.4，无第三方依赖）：
+ *   deno run -A plugin-api/generate-tools.ts                # 自动找启动器数据目录里的最新工具箱
+ *   deno run -A plugin-api/generate-tools.ts --dir <目录>    # 指定 toolbox-static 目录
+ *   deno run -A plugin-api/generate-tools.ts --out <文件>    # 指定输出（默认 plugin-api/tools.d.ts）
  *
- * 工具箱每次更新后重新跑一次，再重新打包启动器，`plugins/api/tools.d.ts` 就会跟着更新。
+ * 工具箱每次更新后重新跑一次；`deno task tools` 是同一个入口。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,13 +18,13 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
 
-function arg(name, fallback) {
+function arg(name: string, fallback: string): string {
   const index = process.argv.indexOf(name);
   return index > 0 && process.argv[index + 1] ? process.argv[index + 1] : fallback;
 }
 
-function candidateDirs() {
-  const dirs = [];
+function candidateDirs(): string[] {
+  const dirs: string[] = [];
   const appData = process.env.APPDATA;
   if (appData) {
     dirs.push(path.join(appData, 'com.coconut.launcher', 'toolbox-static'));
@@ -34,7 +34,7 @@ function candidateDirs() {
   return dirs;
 }
 
-function walkJs(dir, out = []) {
+function walkJs(dir: string, out: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walkJs(full, out);
@@ -127,9 +127,9 @@ function tryParse(source) {
   return { value: null, loosened: true };
 }
 
-function collectTools(dir) {
+function collectTools(dir: string) {
   const tools = new Map();
-  const failures = [];
+  const failures: Array<[string, string]> = [];
   for (const file of walkJs(dir)) {
     const text = fs.readFileSync(file, 'utf8');
     const re = /[A-Za-z_$][\w$]*\(`([a-z][a-z0-9_]*)`,\{description:/g;
@@ -236,7 +236,7 @@ function renderObject(schema, depth) {
   const close = '  '.repeat(depth);
   const lines = Object.entries(properties).map(([key, value]) => {
     const optional = required.has(key) ? '' : '?';
-    const doc = docComment(value && value.description, indent, 1);
+    const doc = docComment((value as { description?: string })?.description, indent, 1);
     const safeKey = /^[A-Za-z_$][\w$]*$/.test(key) ? key : JSON.stringify(key);
     return `${doc}${indent}${safeKey}${optional}: ${renderType(value, depth + 1)};`;
   });
@@ -244,7 +244,7 @@ function renderObject(schema, depth) {
   return `{\n${lines.join('\n')}\n${close}}`;
 }
 
-function docComment(text, indent, maxLines = 2, maxLength = 220) {
+function docComment(text: string | undefined, indent: string, maxLines = 2, maxLength = 220) {
   if (!text) return '';
   const clean = String(text)
     .replace(/\*\//g, '*\\/')
@@ -266,7 +266,7 @@ if (!dir) {
     } catch {
       return false;
     }
-  });
+  }) || '';
 }
 if (!dir || !fs.existsSync(dir)) {
   console.error('找不到工具箱静态产物目录，请用 --dir 指定 toolbox-static。');
@@ -291,11 +291,11 @@ const version = (() => {
   }
 })();
 
-const head = `// 由 plugin-api/generate-tools.mjs 自动生成，请勿手改。
+const head = `// 由 plugin-api/generate-tools.ts 自动生成，请勿手改。
 // 工具箱包体：${
   version ? `version ${version}` : '未标注版本'
 }（${new Date().toISOString().slice(0, 10)} 生成）
-// 工具箱更新后重新跑：node plugin-api/generate-tools.mjs
+// 工具箱更新后重新跑：deno task tools
 
 /** 每个 WS 工具的入参（来自工具箱自己的 JSON Schema）。 */
 export interface CoconutToolParams {

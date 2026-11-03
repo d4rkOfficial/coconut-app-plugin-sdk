@@ -34,7 +34,7 @@
     "new": "deno run -A scripts/new.ts",
     "clean": "deno run -A scripts/clean.ts",
     "test": "deno run -A scripts/test.ts",
-    "tools": "deno run -A plugin-api/generate-tools.mjs",
+    "tools": "deno run -A plugin-api/generate-tools.ts",
     "typecheck": "deno check examples templates scripts",
     "fmt": "deno fmt",
     "lint": "deno lint",

@@ -20,6 +20,8 @@ export type CoconutPermission =
   | 'storage'
   /** Coconut.ui：浮层 / 注入 CSS（同时需要 dom） */
   | 'ui'
+  /** Coconut.http：在启动器里开本地 HTTP / WebSocket 服务 */
+  | 'server'
   /** 只读订阅原始 WS 收发帧（开发调试用，默认先别申请） */
   | 'debug';
 
@@ -161,6 +163,136 @@ export interface CoconutSrc {
   readonly static: CoconutSource;
 }
 
+/* ───────────────────────────── HTTP / WebSocket ───────────────────────────── */
+
+/** 四段生命周期事件名（与 onStart / onHello / onEvent / onStop 对应）。 */
+export type CoconutLifecycleEventName = 'start' | 'hello' | 'event' | 'stop';
+
+/** 生命周期事件对象（Coconut.addEventListener 的回调入参）。 */
+export interface CoconutLifecycleEventMap {
+  start: undefined;
+  hello: CoconutHelloInfo;
+  event: CoconutEvent;
+  stop: undefined;
+}
+
+/** Coconut.http 收到的请求。 */
+export interface CoconutHttpRequest {
+  readonly server: number;
+  readonly method: string;
+  readonly path: string;
+  /** 原始 query 字符串（不含 `?`） */
+  readonly query: string;
+  readonly headers: Record<string, string>;
+  readonly body: string;
+}
+
+/** Coconut.http 的响应。第一次 write/end/send 会把状态行与响应头发给客户端。 */
+export interface CoconutHttpResponse {
+  /** 已经调用过 end / send 之后为 true。 */
+  readonly ended: boolean;
+  status(code: number): this;
+  header(name: string, value: string): this;
+  /** header 的别名 */
+  setHeader(name: string, value: string): this;
+  /** 写一段响应体（不结束请求）。 */
+  write(chunk: string): boolean;
+  /** 结束请求，可带最后一段响应体。 */
+  end(body?: string): boolean;
+  /** 结束请求：字符串原样发送，其它值 JSON 序列化。 */
+  send(body?: unknown): boolean;
+  /** 设置 application/json 并结束请求。 */
+  json(value: unknown): boolean;
+}
+
+/** 服务端 WebSocket 连接（Coconut.http 的 connection 事件）。 */
+export interface CoconutWebSocketConnection {
+  readonly id: number;
+  readonly path: string;
+  send(data: string): boolean;
+  close(): boolean;
+  addEventListener(
+    type: 'message',
+    listener: (event: { data: string }) => void | Promise<void>,
+  ): this;
+  addEventListener(
+    type: 'close',
+    listener: (event: { code: number }) => void | Promise<void>,
+  ): this;
+  removeEventListener(
+    type: 'message' | 'close',
+    listener: (event: { data: string } | { code: number }) => void | Promise<void>,
+  ): this;
+}
+
+/** Coconut.http.createServer 返回的服务对象。 */
+export interface CoconutHttpServer {
+  readonly id: number;
+  readonly port: number;
+  /** 关掉监听，并断开该服务上的 WebSocket 连接。 */
+  close(): boolean;
+  addEventListener(
+    type: 'request',
+    listener: (request: CoconutHttpRequest, response: CoconutHttpResponse) => void | Promise<void>,
+  ): this;
+  addEventListener(
+    type: 'connection',
+    listener: (socket: CoconutWebSocketConnection) => void | Promise<void>,
+  ): this;
+  removeEventListener(
+    type: 'request',
+    listener: (request: CoconutHttpRequest, response: CoconutHttpResponse) => void | Promise<void>,
+  ): this;
+  removeEventListener(
+    type: 'connection',
+    listener: (socket: CoconutWebSocketConnection) => void | Promise<void>,
+  ): this;
+}
+
+/** Coconut.http.createServer 的选项。host 默认 127.0.0.1，port=0 时由系统分配。 */
+export interface CoconutHttpServerOptions {
+  host?: string;
+  port?: number;
+}
+
+/** 插件自己的 HTTP / WebSocket 服务。需要 server 权限。 */
+export interface CoconutHttp {
+  /** `Coconut.http(options)` 等价于 `Coconut.http.createServer(options)`。 */
+  (options?: CoconutHttpServerOptions): CoconutHttpServer;
+  createServer(options?: CoconutHttpServerOptions): CoconutHttpServer;
+}
+
+/** Coconut.webSocket(url) 返回的客户端对象。需要 network 权限。 */
+export interface CoconutWebSocket {
+  readonly id: number;
+  readonly url: string;
+  /** 握手成功后为 true；收到 close 后变 false。 */
+  connected: boolean;
+  send(data: string): boolean;
+  close(): boolean;
+  addEventListener(type: 'open', listener: (event: Record<string, never>) => void | Promise<void>): this;
+  addEventListener(
+    type: 'message',
+    listener: (event: { data: string }) => void | Promise<void>,
+  ): this;
+  addEventListener(
+    type: 'close',
+    listener: (event: { code: number }) => void | Promise<void>,
+  ): this;
+  removeEventListener(
+    type: 'open',
+    listener: (event: Record<string, never>) => void | Promise<void>,
+  ): this;
+  removeEventListener(
+    type: 'message',
+    listener: (event: { data: string }) => void | Promise<void>,
+  ): this;
+  removeEventListener(
+    type: 'close',
+    listener: (event: { code: number }) => void | Promise<void>,
+  ): this;
+}
+
 /** 插件拿到的全局 `Coconut`。 */
 export interface CoconutContext {
   readonly plugin: CoconutPluginMeta;
@@ -221,6 +353,25 @@ export interface CoconutContext {
   /** 等一会儿（毫秒）：`await Coconut.sleep(500)`。需要忙等时优先用它。 */
   sleep(ms: number): Promise<void>;
 
+  /** 插件自己的 HTTP / WebSocket 服务。需要 server 权限。 */
+  readonly http: CoconutHttp;
+
+  /** 连接一个 WebSocket（客户端）。需要 network 权限。 */
+  webSocket(url: string): CoconutWebSocket;
+
+  /**
+   * 生命周期事件监听器：与 onStart / onHello / onEvent / onStop 等价。
+   * `Coconut` 本身是事件对象，可重复添加，也可用 removeEventListener 移除。
+   */
+  addEventListener<K extends CoconutLifecycleEventName>(
+    type: K,
+    listener: (event: CoconutLifecycleEventMap[K]) => void | Promise<void>,
+  ): this;
+  removeEventListener<K extends CoconutLifecycleEventName>(
+    type: K,
+    listener: (event: CoconutLifecycleEventMap[K]) => void | Promise<void>,
+  ): this;
+
   /**
    * 定时器都在插件线程的事件循环里跑，钩子会等它们跑完；
    * 回调调用时**不带参数**（只是为了能塞 Promise 的 resolve，才允许声明入参）。
@@ -252,7 +403,8 @@ declare global {
 
   /* console.* / setTimeout / setInterval / clearTimeout / clearInterval /
      queueMicrotask 沿用 `lib.dom` 的声明（类型一样），运行时由启动器提供：
-     - console.* 转发到插件日志（warn / error 记成同名级别，其余记 info）；
+     - console.* 只进内置调试终端（不写日志文件），console.clear 清空终端；
+     - Coconut.log 才写插件日志文件；
      - 定时器是插件线程自己的事件循环，回调**不带参数**；
      - 其余宿主 API 一律没有，见上面那段注释。 */
 }

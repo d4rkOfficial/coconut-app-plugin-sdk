@@ -5,7 +5,7 @@
 - **模块化源码**：按功能拆文件，`import` 随便用；注入页面的脚本单独放 `page/*.dom.js`；
 - **Deno 一键打包**：esbuild 把整份源码压成启动器能加载的**单文件**（压缩 + 头部元数据）；
 - **现成示例**：本机正在用的插件源码（`buff-coverage` / `echo-substat-optimizer` /
-  `cjk-scramble`）， 外加官方内置的 `free-models`（多文件范本）；
+  `cjk-scramble`）， 外加从启动器内置迁出的 `free-models`（多文件范本，自带 HTTP 服务）；
 - **热重载**：`deno task dev <id>` 保存即打包并写进启动器插件目录，3 秒内生效；
 - **静态自查 + 冒烟测试**：权限 / 头部 / 钩子 / 禁用 API 检查、`.dom.js` 自包含检查，
   以及用「假宿主 + 假页面」跑打包产物的回归测试。
@@ -42,7 +42,8 @@ deno task build                        # 打包全部示例 → dist/*.js（压�
 deno task dev echo-substat-optimizer   # 监听源码并自动部署到启动器（热重载）
 ```
 
-插件日志在 `%APPDATA%\com.coconut.launcher\logs\plugins.log`；工具箱页面按 `Ctrl+T` 看只读 Console。
+插件日志在 `%APPDATA%\com.coconut.launcher\logs\plugins.log`；工具箱页面按 `Ctrl+T`
+打开可读写调试终端（`console.*` 只进终端，`Coconut.log` 才写日志文件）。
 
 ## 命令
 
@@ -76,7 +77,7 @@ coconut-app-plugin-sdk/
   plugin-api/                   ← API 类型声明（本仓库为准；tools.d.ts 为生成物）
     coconut-plugin.d.ts         ← Coconut / 钩子 / 权限类型
     tools.d.ts                  ← 工具箱 WS 工具的类型（自动生成）
-    generate-tools.mjs          ← 重新生成 tools.d.ts
+    generate-tools.ts           ← 重新生成 tools.d.ts
   templates/plugin/index.js     ← `deno task new` 用的骨架
   examples/<id>/                ← 插件源码（目录名 = 插件 id = 产物文件名）
     index.js                    ← 入口：头部元数据 + 钩子 + 装配
@@ -89,12 +90,12 @@ coconut-app-plugin-sdk/
 
 ## 示例
 
-| 示例                     | 权限                           | 模块划分 / 看点                                                                                                                         |
-| ------------------------ | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `buff-coverage`          | toolbox, ui, dom               | `state` `snapshot` `geometry` `render` `theme` `measure` `refresh` + `page/*.dom.js`；只读浮层、几何标定、色块过渡动画                  |
-| `echo-substat-optimizer` | toolbox, ui, dom               | `state` `api` `config` `slots` `search` `optimize` `overlay` `theme` `detect` + 5 个页面脚本；大量 `callTool` 编排、快照/还原、预算控制 |
-| `cjk-scramble`           | dom                            | `chars` + 2 个页面脚本；`runJs` 注入自包含页面逻辑 + `MutationObserver`                                                                 |
-| `free-models`            | toolbox, dom, storage, network | `constants` `log` `page` `profiles` `sync` + 3 个页面脚本；多文件、IndexedDB 只读、幂等同步                                             |
+| 示例                     | 权限                                   | 模块划分 / 看点                                                                                                                         |
+| ------------------------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `buff-coverage`          | toolbox, ui, dom                       | `state` `snapshot` `geometry` `render` `theme` `measure` `refresh` + `page/*.dom.js`；只读浮层、几何标定、色块过渡动画                  |
+| `echo-substat-optimizer` | toolbox, ui, dom                       | `state` `api` `config` `slots` `search` `optimize` `overlay` `theme` `detect` + 5 个页面脚本；大量 `callTool` 编排、快照/还原、预算控制 |
+| `cjk-scramble`           | dom                                    | `chars` + 2 个页面脚本；`runJs` 注入自包含页面逻辑 + `MutationObserver`                                                                 |
+| `free-models`            | toolbox, dom, storage, network, server | `constants` `log` `models` `openai` `server` `profiles` `sync` `page` + 3 个页面脚本；自带 OpenAI 兼容服务、上游模型缓存、SSE 转换      |
 
 ## 打包做了什么
 

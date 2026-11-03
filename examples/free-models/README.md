@@ -1,21 +1,34 @@
-# free-models · 免费模型同步（多文件示例）
+# free-models · 免费模型
 
-启动器内置插件（不是用户插件），把启动器免费模型代理里的模型同步成工具箱的 AI 配置。
+把 opencode 的免费模型同步成工具箱的 AI 配置，并**由插件自己**提供 OpenAI 兼容服务。
+不再是启动器内置插件，也不需要启动器里的 Rust `/v1` 代理。
 
-- **权限**：`toolbox, dom, storage, network`
-- **入口**：`index.js`（**多模块**，`deno task build` 会内联成一个文件）
-- **看点**
-  - 页面侧逻辑写在 `*.dom.js` 里的**自包含普通函数**，注入时用
-    `` `return (${String(fn).trim()})()` `` 序列化，不手写模板字符串；
-  - IndexedDB 只读（`wuwa-v1` / `cache`）判断用户有没有关 AI 助手；
-  - `Coconut.fetch` 打启动器本地 `/v1/models`，`Coconut.storage` 记「首次使用」；
-  - 幂等与去重：`get_ai_profiles` + `manage_ai_profile` 增改删，同名只留一条；
-  - 页面还没就绪时用 `Coconut.setTimeout` 短退避重试，而不是阻塞钩子。
-
-这是「源码拆多文件、产物仍单文件」的官方范本；改它之前建议先
-`deno task pull free-models --as free-models-fork`，避免和内置插件同 id。
+- **权限**：`toolbox, dom, storage, network, server`
+- **端口**：首选 `47830`，被占用时用系统分配端口（同步配置时写实际端口）
+- **入口**：`index.js`（多模块，`deno task build` 会内联成一个文件）
+- **路由**：`GET /v1/models`、`POST /v1/chat/completions`
+- **上游**：`https://opencode.ai/inference/v1`，全部走 `Coconut.fetch`
+- **缓存**：模型列表存插件 storage，24 小时内不重复请求上游
 
 ## 模块划分
 
-`constants.js` 标记/地址 · `log.js` 日志 · `page.js` 页面调用封装 · `profiles.js` 配置原子操作 ·
-`sync.js` 同步编排 · `page/{prefs,config,assistant}.dom.js` 页面脚本 · `page/run.js` pageCall
+```text
+constants.js   端口 / 托管配置标记
+log.js         统一日志
+models.js      上游模型列表、缓存、Authorization
+openai.js      SSE 转换（隐藏 read 工具）/ 非流式收集
+server.js      Coconut.http 服务与两个 OpenAI 路由
+page.js        页面脚本调用封装
+profiles.js    单条 AI 配置的增删改 / 去重
+sync.js        同步编排（何时写、等配置就绪、失败退避）
+page/*.dom.js  IndexedDB 只读、打开 AI 面板
+```
+
+## 两个关键点
+
+1. `Coconut.http.createServer()` 返回的是**事件对象**：用
+   `server.addEventListener('request', (req, res) => …)` 处理请求； 同一个端口也可以接收 WebSocket
+   升级，用 `server.addEventListener('connection', socket => …)`。
+2. 不要在自己的插件里 `Coconut.fetch('http://127.0.0.1:47830/v1/models')`： 服务端 handler
+   和插件主线程是同一个 QuickJS 线程，自请求会等自己，直接死锁。 需要模型列表时调用 `models.js` 的
+   `fetchModels()`。

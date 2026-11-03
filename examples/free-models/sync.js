@@ -4,15 +4,10 @@
  */
 import { MAX_RETRIES } from './constants.js';
 import { log } from './log.js';
+import { fetchModels } from './models.js';
 import { openAssistantPanel, readAiConfig, readAiPrefs } from './page.js';
-import {
-  dedupeManaged,
-  deleteProfile,
-  fetchModels,
-  isManaged,
-  setSetting,
-  syncModels,
-} from './profiles.js';
+import { dedupeManaged, deleteProfile, isManaged, setSetting, syncModels } from './profiles.js';
+import { baseUrl } from './server.js';
 
 /**
  * 工具箱是异步把 ai-config 从 IndexedDB 读进内存的：页面刚起来时
@@ -99,7 +94,7 @@ export async function runSync() {
   }
 
   retryCount = 0;
-  const result = syncModels(models);
+  const result = syncModels(models, baseUrl());
   const deduped = dedupeManaged();
   setSetting('ai_enabled', true);
   if (!seeded) {

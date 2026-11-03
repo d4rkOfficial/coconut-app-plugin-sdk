@@ -260,6 +260,7 @@ async function onEvent(event) {
 | `network` | `Coconut.fetch`                                     | 抛「插件缺少 network 权限」                                |
 | `storage` | `Coconut.storage.*`                                 | 抛「插件缺少 storage 权限」                                |
 | `ui`      | `Coconut.ui.overlay / visible / remove / injectCss` | 抛「插件缺少 ui 权限」（`overlay`/`injectCss` 还要 `dom`） |
+| `server`  | `Coconut.http.createServer`                         | 抛「插件缺少 server 权限」                                 |
 | `debug`   | `onEvent` 里的原始 WS 帧                            | 收不到 `frame` 事件                                        |
 
 `Coconut.log` / `console.*` / 定时器**不需要**权限。
@@ -371,10 +372,67 @@ Coconut.ui.remove(id); // 删掉，再操作这个 id 会返回 false
 - `visible` / `show` / `hide` / `remove` 都返回 boolean（没找到这个 id 时为 `false`）；
 - `injectCss(id, css)` 是**页面级**样式，跟浮层无关，同名再调一次是替换，传 `''` 撤销。
 
+### `Coconut.http`（`server`）
+
+在启动器进程里开一个本地 HTTP / WebSocket 服务。`Coconut.http(options)` 是
+`Coconut.http.createServer(options)` 的简写，返回**事件对象**：
+
+```js
+const server = Coconut.http.createServer({ host: '127.0.0.1', port: 47830 });
+server.addEventListener('request', (req, res) => {
+  if (req.path === '/hello') res.json({ ok: true });
+  else res.status(404).send('not found');
+});
+server.addEventListener('connection', (socket) => {
+  socket.addEventListener('message', (event) => socket.send(event.data));
+});
+Coconut.log('监听端口', server.port);
+```
+
+- `port: 0` 由系统分配；`server.port` 是实际端口；
+- `req = { method, path, query, headers, body }`；`query` 是原始字符串；
+- `res.status / header / setHeader / write / end / send / json`； 第一次 `write` / `end` / `send`
+  才把状态行与响应头发出去，之后可以继续 `write`；
+- `server.close()` 关闭监听并断开该服务上的 WebSocket；
+- `connection` 事件给的是 `CoconutWebSocketConnection`（`send` / `close` / `message` / `close`）；
+- 同一个端口同时支持普通 HTTP 与 WebSocket 升级，不需要开两个服务。
+
+> 服务 handler 和插件主线程是同一个 QuickJS 线程：不要在自己的 handler 里 `Coconut.fetch`
+> 自己刚开的端口，会等自己而死锁。
+
+### `Coconut.webSocket(url)`（客户端，`network`）
+
+```js
+const ws = Coconut.webSocket('ws://127.0.0.1:8765');
+ws.addEventListener('open', () => ws.send('hello'));
+ws.addEventListener('message', (event) => Coconut.log('收到', event.data));
+ws.addEventListener('close', (event) => Coconut.log('关闭', event.code));
+```
+
+返回事件对象，支持 `open` / `message` / `close`；`send(data)` / `close()`； `connected` 在收到 close
+后变 false。握手失败会直接抛错。
+
+### `Coconut.addEventListener`（生命周期，无需权限）
+
+`Coconut` 本身是事件对象，四个生命周期事件与全局钩子等价：
+
+```js
+Coconut.addEventListener('hello', async () => { ... });
+Coconut.addEventListener('event', (event) => { ... });
+Coconut.removeEventListener('hello', handler);
+```
+
+事件名：`start` / `hello` / `event` / `stop`。监听器可以是 async；同一个事件可以叠加多个， 全局
+`onHello` 等钩子仍然可用，两者会一起执行。
+
 ### `Coconut.log(...args)` / `console.*`
 
-两者都写进插件日志文件。`Coconut.log` 用 `String()` 拼参数，对象会变成
-`[object Object]`——要结构化请自己 `JSON.stringify`；`console.*` 会帮非字符串做 `JSON.stringify`。
+- `Coconut.log(...args)` 写插件日志文件 `logs/plugins.log`；它用 `String()` 拼参数，对象会变成
+  `[object Object]`——要结构化请自己 `JSON.stringify`。
+- `console.*` **不写日志文件**，只进工具箱里的内置调试终端；`console.clear()` 清空终端。 `console.*`
+  会帮非字符串做 `JSON.stringify`。
+- 终端 `Ctrl+T` / `` Ctrl+` `` 打开，可读写：`Tab` 切换插件层 / DOM 层，括号闭合回车运行，
+  括号未闭合回车换行。
 
 ### `Coconut.launcher` / `Coconut.src`（只读，不需要权限）
 
@@ -426,14 +484,16 @@ Coconut.ui.overlay({
 ## 7. 调试与日志
 
 - **日志文件**：`%APPDATA%\com.coconut.launcher\logs\plugins.log`， 每行前缀是 UTC
-  时间（`2026-10-29 11:40:01Z`），超过 2 MB 滚成 `plugins.log.1`。
-  **每次打开工具箱都会换新的一份**：旧文件改名成 `plugins-<时间>.log` 备份，只保留最近 10 份。
-- **只读 Console**：在工具箱页面按 `Ctrl+T`（或 `` Ctrl+` ``）打开，居中面板，能看 「插件日志 /
-  启动器日志」两个来源、每秒自动刷新；没有输入框，只读，`Esc` 或 `✕` 关闭。
-- 启动页「插件」弹窗：标题栏右上角 ✕ / `Esc` 关闭；支持按名称 / id / 描述 / 权限搜索、 按「全部 /
+  时间（`2026-10-29 11:40:01Z`），超过 2 MB 滚成 `plugins.log.1`。 **只有 `Coconut.log`
+  写这里**；**每次打开工具箱都会换新的一份**：旧文件改名成 `plugins-<时间>.log` 备份，只保留最近 10
+  份。
+- **调试终端**：在工具箱页面按 `Ctrl+T`（或 `` Ctrl+` ``）打开，可读写；`console.*` 只进这里，
+  `console.clear()` 清空终端。`Tab` 切换插件层 / DOM 层，括号闭合回车运行、未闭合回车换行； `Esc` 或
+  `✕` 关闭。
+- **内置插件**：源码编进启动器，首次启动导出到 `plugins/`；之后以插件目录里的文件为准。
+  启动页「插件」弹窗：标题栏右上角 ✕ / `Esc` 关闭；支持按名称 / id / 描述 / 权限搜索、 按「全部 /
   已启用 / 已停用 / 异常」筛选、一键全部启用 / 全部停用；每行右侧是启用开关
-  - 重载（**不能在这里删插件**，删文件请自己进插件目录操作；内置插件要「伪删除」就把
-    `plugins/state.json` 里那项改成 `"enabled": false, "removed": true`，重启后列表里消失）；
+  - 重载（**不能在这里删插件**，删文件请自己进插件目录操作；内置插件删了下次启动会重新导出）；
     出错的行会显示「错误 N 次：…」，标题栏计数也会转红。
 - 启动器自身 panic：`%APPDATA%\com.coconut.launcher\panic.log`。
 
@@ -449,23 +509,23 @@ deno check --config plugin-api/deno.json my-plugin.js
 - 插件文件开头加 `// @ts-check` 参与检查；
 - 或者加一行三斜线引用：`/// <reference path="./plugin-api/coconut-plugin.d.ts" />`；
 - `noImplicitAny` 故意关掉，参数个数 / 类型写错仍然会报；
-- `tools.d.ts` 是生成的，别手改；工具箱更新后用仓库里
-  `node plugin-api/generate-tools.mjs [--dir <toolbox-static>]` 重新生成， 再重新打包启动器。
+- `tools.d.ts` 是生成的，别手改；工具箱更新后用仓库里 `deno task tools` 重新生成，
+  再重新打包启动器。
 
 ## 9. 常见坑
 
-| 症状                                      | 原因 / 解决                                                                |
-| ----------------------------------------- | -------------------------------------------------------------------------- |
-| 插件「加载失败」                          | 语法错误，或文件带 BOM 且第一行注释被顶掉；先过 `deno check`               |
-| 钩子完全没被调用                          | 写成了 `const onHello = ...`，必须 `async function onHello() {}`           |
-| `Coconut.runJs` 返回 `"null"`             | 代码里没有 `return`；也别忘了它返回的是字符串                              |
-| 报「工具箱页面还没打开」                  | 在 `onStart` 里就 `runJs` 了；挪到 `onHello` 或按示例 5 重试               |
-| 连续 3 次报错被停用                       | 钩子抛异常；卡片上看最后一次错误，修完点「启用」                           |
-| 钩子「超过 10s 未返回」                   | 死循环或等一个不会完成的 Promise；别忙等，用定时器                         |
-| storage 值读出来不对                      | 值必须 JSON 可序列化                                                       |
-| 改了文件没生效                            | 最多 3 秒自动扫描；也可以点「重新扫描」/「重载」                           |
-| `Coconut.log(obj)` 打出 `[object Object]` | `Coconut.log` 用 `String()`；用 `console.log` 或 `JSON.stringify`          |
-| 浮层里的按钮点了没反应                    | 浮层容器默认 `pointer-events: none`，给可交互元素加 `pointer-events: auto` |
+| 症状                                      | 原因 / 解决                                                                                   |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 插件「加载失败」                          | 语法错误，或文件带 BOM 且第一行注释被顶掉；先过 `deno check`                                  |
+| 钩子完全没被调用                          | 写成了 `const onHello = ...`，必须 `async function onHello() {}`                              |
+| `Coconut.runJs` 返回 `"null"`             | 代码里没有 `return`；也别忘了它返回的是字符串                                                 |
+| 报「工具箱页面还没打开」                  | 在 `onStart` 里就 `runJs` 了；挪到 `onHello` 或按示例 5 重试                                  |
+| 连续 3 次报错被停用                       | 钩子抛异常；卡片上看最后一次错误，修完点「启用」                                              |
+| 钩子「超过 10s 未返回」                   | 死循环或等一个不会完成的 Promise；别忙等，用定时器                                            |
+| storage 值读出来不对                      | 值必须 JSON 可序列化                                                                          |
+| 改了文件没生效                            | 最多 3 秒自动扫描；也可以点「重新扫描」/「重载」                                              |
+| `Coconut.log(obj)` 打出 `[object Object]` | `Coconut.log` 用 `String()`；用 `Coconut.log(JSON.stringify(obj))` 或 `console.log`（仅终端） |
+| 浮层里的按钮点了没反应                    | 浮层容器默认 `pointer-events: none`，给可交互元素加 `pointer-events: auto`                    |
 
 ## 10. 安全与礼仪
 
@@ -477,15 +537,15 @@ deno check --config plugin-api/deno.json my-plugin.js
 
 ## 11. 和旧文档的差异（改版清单）
 
-| 旧                                     | 新                                                                  |
-| -------------------------------------- | ------------------------------------------------------------------- |
-| `ctx.runJs` / `Oc*` 类型前缀           | 统一 `Coconut` / `Coconut*`                                         |
-| `@apiVersion` 头部                     | 已废除，解析器不再读                                                |
-| `notify` 权限 + `Coconut.notify(text)` | 已删除，画浮层或写日志代替                                          |
-| 日志在「插件」弹窗的日志面板           | 弹窗里没有日志入口；工具箱里 `Ctrl+T` 看只读 Console，或直接看文件  |
-| 内置 WS 终端（Ctrl+T）                 | 命令行终端已移除；`Ctrl+T` 现在是只读日志 Console                   |
-| 文档释放到 `plugins/api/`              | 改为只留在仓库 `plugin-api/`，不打包进 exe                          |
-| `Coconut.plugin` 含 `apiVersion`       | 现在是 `{ id, name, version, mount, permissions }`                  |
-| `ui.panel / ui.close`                  | 换成 `ui.overlay({ html, css })` + `visible / show / hide / remove` |
-| 自己包 sleep                           | `await Coconut.sleep(ms)`                                           |
-| 内置插件不可删                         | 启动器里一律不提供删除（用户插件也没有删除按钮）                    |
+| 旧                                     | 新                                                                         |
+| -------------------------------------- | -------------------------------------------------------------------------- |
+| `ctx.runJs` / `Oc*` 类型前缀           | 统一 `Coconut` / `Coconut*`                                                |
+| `@apiVersion` 头部                     | 已废除，解析器不再读                                                       |
+| `notify` 权限 + `Coconut.notify(text)` | 已删除，画浮层或写日志代替                                                 |
+| 日志在「插件」弹窗的日志面板           | 弹窗里没有日志入口；`Coconut.log` 写文件，`console.*` 进 `Ctrl+T` 调试终端 |
+| 内置 WS 终端（Ctrl+T）                 | 可读写调试终端（插件层 / DOM 层 REPL），`console.clear` 清空               |
+| 文档释放到 `plugins/api/`              | 改为只留在仓库 `plugin-api/`，不打包进 exe                                 |
+| `Coconut.plugin` 含 `apiVersion`       | 现在是 `{ id, name, version, mount, permissions }`                         |
+| `ui.panel / ui.close`                  | 换成 `ui.overlay({ html, css })` + `visible / show / hide / remove`        |
+| 自己包 sleep                           | `await Coconut.sleep(ms)`                                                  |
+| 内置插件不可删                         | 启动器里一律不提供删除（用户插件也没有删除按钮）                           |

@@ -1,5 +1,6 @@
 /** 托管配置的标记与固定常量。 */
-export const BASE_URL = 'http://127.0.0.1:47821/v1';
+/** 免费模型服务监听的首选端口；被占用时退回系统分配。 */
+export const SERVER_PORT = 47830;
 /** 代理会把这个占位 Key 换成用户真实存的 Key，所以这里不是秘密。 */
 export const PUBLIC_KEY = 'public';
 /** 托管配置的 label 前缀（零宽字符，用户改不动、也不显眼）。 */
