@@ -232,8 +232,11 @@ class FakePage {
     return node;
   }
 
-  /** 执行 runJs 的代码：模拟宿主包一层 async 函数，并返回 String(结果)。 */
-  run(code: string): string {
+  /**
+   * 执行页面脚本：模拟宿主的 `run_js`（工具箱那边会包成 async 函数）。
+   * 返回**真实值**；页面脚本是异步的就返回 Promise，插件侧 `await` 一下即可。
+   */
+  run(code: string): unknown {
     const names = [
       'document',
       'window',
@@ -261,38 +264,7 @@ class FakePage {
       console,
     ];
     const fn = new Function(...names, `return (async () => {${code}\n})()`);
-    const result = fn(...values) as Promise<unknown> | unknown;
-    if (result && typeof (result as Promise<unknown>).then === 'function') {
-      // runJs 是同步返回字符串的宿主 API：这里用「轮询 + 同步兜底」模拟。
-      // 测试里页面脚本都很短，用微任务轮询等待它 resolve。
-      return this.waitValue(result as Promise<unknown>);
-    }
-    return String(result);
-  }
-
-  private pending = new Map<number, unknown>();
-  private waitValue(promise: Promise<unknown>): string {
-    const key = this.pending.size + 1;
-    this.pending.set(key, undefined);
-    promise.then((value) => {
-      this.pending.set(key, String(value));
-    });
-    return `PENDING:${key}`;
-  }
-
-  /** 把 `PENDING:n` 解析成真实值（迭代直到没有 pending）。 */
-  async resolve(value: unknown): Promise<string> {
-    let text = String(value);
-    for (let round = 0; round < 20; round++) {
-      const match = /PENDING:(\d+)/.exec(text);
-      if (!match) return text;
-      const key = Number(match[1]);
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      const settled = this.pending.get(key);
-      if (settled === undefined) continue;
-      text = String(settled);
-    }
-    return text;
+    return fn(...values);
   }
 
   private makeIndexedDB() {
@@ -396,8 +368,12 @@ function loadPlugin(id: string, engine: Engine, page: FakePage): Loaded {
       all: () => ({ ...stored }),
     },
     ui: {
-      overlay: (options: { html?: string; css?: string }) => {
-        overlays.push(options || {});
+      overlay: (options: { html?: unknown; css?: unknown }) => {
+        const text = (value: unknown) =>
+          value && typeof value === 'object' && 'text' in value
+            ? String((value as { text?: string }).text ?? '')
+            : (value as string | undefined);
+        overlays.push({ html: text(options?.html), css: text(options?.css) });
         overlaySeq += 1;
         return overlaySeq;
       },
@@ -438,14 +414,34 @@ function loadPlugin(id: string, engine: Engine, page: FakePage): Loaded {
     },
     runJs: (codeText: string) => {
       runJsCodes.push(codeText);
-      const raw = page.run(codeText);
-      // 页面脚本可能是异步的：把它包成一个「thenable 字符串」让插件 await 到正确值
-      return {
-        then: (resolve: (value: string) => void) => {
-          page.resolve(raw).then(resolve);
-        },
-        toString: () => raw,
-      };
+      return page.run(codeText);
+    },
+    toolbox: {
+      runJs: (target: unknown, ...args: unknown[]) => {
+        let code: string;
+        if (typeof target === 'function') {
+          const source = Function.prototype.toString.call(target);
+          if (source.includes('[native code]')) throw new TypeError('不能执行原生函数');
+          code = `return (${source}).apply(undefined, ${JSON.stringify(args)});`;
+        } else if (typeof target === 'string') {
+          code = args.length
+            ? `return (${target}).apply(undefined, ${JSON.stringify(args)});`
+            : target;
+        } else if (target && typeof target === 'object' && '__coconut' in target) {
+          code = String((target as { text?: string }).text ?? '');
+        } else {
+          throw new TypeError('runJs 需要字符串、函数或 <script> 片段');
+        }
+        runJsCodes.push(code);
+        return page.run(code);
+      },
+      exit: () => true,
+    },
+    tools: {
+      call: (name: string, args?: Record<string, unknown>) =>
+        Promise.resolve(engine.callTool(name, args || {})),
+      addEventListener: () => {},
+      removeEventListener: () => {},
     },
     sleep: () => Promise.resolve(),
     setTimeout: () => {
@@ -860,6 +856,38 @@ async function testEchoOptimizer() {
   );
 }
 
+/* ───────────────────────── JSX 片段 ───────────────────────── */
+
+async function testJsxChunks() {
+  log(`${bold('plugin-api/jsx')}`);
+  const { h, raw, Fragment, textOf, css } = await import('../plugin-api/jsx.ts');
+
+  const escaped = String(h('html', null, h('div', { className: 'c' }, 'a<b&c')));
+  check('字符串子节点自动转义', escaped.includes('a&lt;b&amp;c'), escaped);
+  check('className 映射成 class', escaped.includes('class="c"'), escaped);
+
+  const rawish = String(h('html', null, h('div', null, raw('<i>x</i>'))));
+  check('raw() 原样插入', rawish.includes('<i>x</i>') && !rawish.includes('&lt;i&gt;'), rawish);
+
+  const style = String(h('style', null, '.a{content:"<"}'));
+  check('<style> 不转义', style === '.a{content:"<"}', style);
+
+  const voidTag = String(h('img', { src: 'a.png', alt: 'q"q' }));
+  check('void 标签自闭合 + 属性转义', voidTag === '<img src="a.png" alt="q&quot;q" />', voidTag);
+
+  check('Fragment 拼成 html 片段', textOf(h(Fragment, null, 'x')) === 'x');
+
+  let threw = '';
+  try {
+    h(Fragment, null, h('style', null, '.x{}'));
+  } catch (error) {
+    threw = (error as Error).name;
+  }
+  check('Fragment 混入 <style> 直接报错', threw === 'TypeError', threw);
+
+  check('片段带 kind', css('.x{}').__coconut === 'css');
+}
+
 /* ───────────────────────── 主流程 ───────────────────────── */
 
 if (!exists(distDir)) {
@@ -868,6 +896,7 @@ if (!exists(distDir)) {
 }
 
 log(dim('用假宿主 + 假页面跑打包产物…\n'));
+await testJsxChunks();
 await testCjkScramble();
 await testFreeModels();
 await testBuffCoverage();

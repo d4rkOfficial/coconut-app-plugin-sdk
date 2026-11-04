@@ -253,17 +253,17 @@ async function onEvent(event) {
 
 ## 3. 权限
 
-| 权限      | 解锁                                                | 没申请时                                                   |
-| --------- | --------------------------------------------------- | ---------------------------------------------------------- |
-| `dom`     | `Coconut.runJs`                                     | 抛「插件缺少 dom 权限」                                    |
-| `toolbox` | `Coconut.callTool`                                  | 抛「插件缺少 toolbox 权限」                                |
-| `network` | `Coconut.fetch`                                     | 抛「插件缺少 network 权限」                                |
-| `storage` | `Coconut.storage.*`                                 | 抛「插件缺少 storage 权限」                                |
-| `ui`      | `Coconut.ui.overlay / visible / remove / injectCss` | 抛「插件缺少 ui 权限」（`overlay`/`injectCss` 还要 `dom`） |
-| `server`  | `Coconut.http.createServer`                         | 抛「插件缺少 server 权限」                                 |
-| `debug`   | `onEvent` 里的原始 WS 帧                            | 收不到 `frame` 事件                                        |
+| 权限      | 解锁                                                                | 没申请时                    |
+| --------- | ------------------------------------------------------------------- | --------------------------- |
+| `dom`     | `Coconut.toolbox.runJs`                                             | 抛「插件缺少 dom 权限」     |
+| `toolbox` | `Coconut.tools.call`、`Coconut.toolbox.exit`                        | 抛「插件缺少 toolbox 权限」 |
+| `network` | `Coconut.fetch`、`Coconut.webSocket`                                | 抛「插件缺少 network 权限」 |
+| `storage` | `Coconut.storage.*`                                                 | 抛「插件缺少 storage 权限」 |
+| `ui`      | `Coconut.ui.*`（`overlay` / `injectCss` / `requestAnimationFrame`） | 抛「插件缺少 ui 权限」      |
+| `server`  | `Coconut.http.createServer`                                         | 抛「插件缺少 server 权限」  |
+| `debug`   | `onEvent` / `addEventListener('frame')` 的原始 WS 帧                | 收不到 `frame` 事件         |
 
-`Coconut.log` / `console.*` / 定时器**不需要**权限。
+`Coconut.log` / `console.*` / 定时器 / `Event` / `EventTarget` / `AbortController` **不需要**权限。
 
 权限是 Rust 侧硬校验的，插件卡片会把声明的权限原样展示给用户——只申请真正用得到的。
 
@@ -275,14 +275,16 @@ async function onEvent(event) {
 | 钩子             | 时机                                    | 参数                                   |
 | ---------------- | --------------------------------------- | -------------------------------------- |
 | `onStart()`      | 插件线程起来（页面可能还没打开）        | 无                                     |
-| `onHello(info)`  | 工具箱页面就绪                          | `{ session: string, tools: string[] }` |
+| `onHello(info)`  | 工具箱页面就绪（**每个会话一次**）      | `{ session: string, tools: string[] }` |
 | `onEvent(event)` | `resync`；有 `debug` 权限时还有 `frame` | `CoconutEvent`                         |
+| `onBye(info)`    | 页面会话结束（关闭 / 重载 / 回启动器）  | `{ session?: string }`                 |
 | `onStop()`       | 停用 / 重载 / 退出                      | 无                                     |
 
-- 四个钩子都可以是 `async function`，`await` 宿主 API 没问题；
+- 五个钩子都可以是 `async function`，`await` 宿主 API 没问题；
 - **单个钩子超过 10 秒**会被 QuickJS 中断，记一次错误；
 - **连续 3 次抛错自动停用**，插件卡片标红并显示最后一次错误，用户点「启用」恢复；
-- `onHello` 在每次页面就绪时都会触发（页面刷新、WS 重连），**必须可重复执行**；
+- `onHello` 由引擎按 `session` 去重：4 秒重发、`last_hello` 重放都不会重复触发；
+  页面重载是新会话，会正常再来一次。清理逻辑优先写 `onBye`；
 - 启用状态落在 `plugins/state.json`，插件存储落在 `plugins/storage/<id>.json`。
 
 ## 5. `Coconut` API 速查
@@ -291,13 +293,72 @@ async function onEvent(event) {
 
 `{ id, name, version, mount, permissions }`，只读。
 
-### `Coconut.runJs(code)` → `string`（`dom`）
+### `Coconut.toolbox.runJs(code | fn, ...args)` → 页面返回值（`dom`）
 
-在工具箱页面里执行 JS。**传的是函数体**——工具箱会包成
-`return (async () => { <你的代码> })()`，所以自己写 `return`：
+在工具箱页面里执行，返回**真实值**（不是字符串）：
 
 ```js
-const count = Number(Coconut.runJs('return document.querySelectorAll(".card").length'));
+// 1) 字符串：函数体，自己 return
+const title = Coconut.toolbox.runJs('return document.title');
+
+// 2) 函数对象：源码送到页面执行，参数 JSON 序列化后传进去
+const count = Coconut.toolbox.runJs(
+  (selector) => document.querySelectorAll(selector).length,
+  '.card',
+);
+
+// 3) JSX 片段
+Coconut.toolbox.runJs(<script>{`document.body.dataset.ready = '1'`}</script>);
+```
+
+- 函数必须**自包含**：闭包变量在页面里不存在，数据走参数；
+- `async` 函数不支持（页面侧拿不到 Promise），会直接抛 `TypeError`；
+- 页面脚本本身可以是 async，真实宿主会等它 resolve（`await` 一下最稳）。
+
+### `Coconut.toolbox.exit()`（`toolbox`）
+
+关掉工具箱页面，回到启动器首页。
+
+### `Coconut.tools.call(name, args?, { signal })` → `Promise<unknown>`（`toolbox`）
+
+异步调用工具箱工具，**不阻塞插件线程**（调用期间定时器 / socket / http 事件照常派发）：
+
+```js
+const state = (await Coconut.tools.call('get_ai_profiles', {})) || {};
+
+// 可中止：abort 后 Promise 以 AbortError 拒绝，迟到的结果被丢弃
+const controller = new AbortController();
+const pending = Coconut.tools.call('get_result_summary', {}, { signal: controller.signal });
+controller.abort();
+```
+
+`Coconut.tools` 是事件对象，每次调用完成都会派发 `result` / `error`：
+
+```js
+Coconut.tools.addEventListener('result', (event) => {
+  const { tool, result, ms } = event.detail;
+});
+```
+
+### `Coconut.runJs(code)` → `string`（**已废弃**，仍可运行）
+
+旧接口：同步、返回字符串。改用 `Coconut.toolbox.runJs`。运行时第一次调用会
+`console.warn`，类型声明已注释掉。
+
+### `Coconut.callTool(name, args?)` → 工具返回值（**已废弃**，仍可运行）
+
+旧接口：同步阻塞、最多 30 秒。改用 `Coconut.tools.call`。
+
+### `Coconut.ui.requestAnimationFrame(cb)` / `cancelAnimationFrame(id)`（`ui`）
+
+由工具箱页面的 rAF 合并后回传：**≤30Hz、有 1～2 帧抖动**，适合低频驱动；
+视觉动画请写进页面脚本（`overlay({ script })` 或 `toolbox.runJs`，那里是原生 rAF）。
+页面会话结束（`bye`）时回调会被清空，需要在下一个 `onHello` 里重新注册。
+
+<!-- 以下为旧版 runJs 示例，保留作对照 -->
+<details><summary>旧 `runJs` 示例（不再推荐）</summary>
+
+```js
 const prefs = JSON.parse(Coconut.runJs(`
   const record = await new Promise((resolve) => {
     const req = indexedDB.open('wuwa-v1', 1);
@@ -316,33 +377,31 @@ const prefs = JSON.parse(Coconut.runJs(`
 返回值永远是字符串（`String(...)`），要对象就自己 `JSON.stringify` / `JSON.parse`； 页面里抛错会变成
 JS 异常。
 
-### `Coconut.callTool(name, args?)` → 工具返回值（`toolbox`）
+</details>
+
+### `Coconut.callTool(name, args?)` → 工具返回值（**已废弃**，仍可运行）
+
+改用 `Coconut.tools.call`（异步、可中止、有结果事件）。旧写法：
 
 ```js
-const state = Coconut.callTool('get_ai_profiles', {});
-Coconut.callTool('manage_ai_profile', {
-  action: 'add',
-  label: '我的配置',
-  baseUrl: 'http://127.0.0.1:47821/v1',
-  model: 'deepseek-v4.1-flash',
-});
-Coconut.callTool('set_setting', { key: 'theme_mode', value: 'dark' });
+// 旧：同步阻塞，最多 30 秒
+// const state = Coconut.callTool('get_ai_profiles', {});
 ```
 
 工具报错会抛成 JS 异常（→ 钩子抛错 → 错误计数）。
 
-工具名和入参由 `plugin-api/tools.d.ts` 提供类型（143 个工具，从工具箱包体自动生成）： 写
-`Coconut.callTool(` 时编辑器会补全工具名，参数写错 / 少传必填项会直接报错。 返回类型是
+工具名和入参由 `plugin-api/tools.d.ts` 提供类型（157 个工具，从工具箱包体自动生成）： 写
+`Coconut.tools.call(` 时编辑器会补全工具名，参数写错 / 少传必填项会直接报错。 返回类型是
 `unknown`（工具箱没暴露返回结构），要字段自己断言：
 
 ```js
 const state = /** @type {{ activeId?: string, profiles: { id: string, model: string }[] }} */ (
-  Coconut.callTool('get_ai_profiles', {})
+  await Coconut.tools.call('get_ai_profiles', {})
 );
 ```
 
-工具箱刚更新、`tools.d.ts` 还没重新生成时，用 `Coconut.callTool(/** @type {any} */ ('新工具'), {})`
-绕过名字检查。
+工具箱刚更新、`tools.d.ts` 还没重新生成时，用
+`Coconut.tools.call(/** @type {any} */ ('新工具'), {})` 绕过名字检查。
 
 ### `Coconut.fetch(url, options?)` → `{ status, ok, headers, body, json }`（`network`）
 
@@ -353,7 +412,7 @@ const state = /** @type {{ activeId?: string, profiles: { id: string, model: str
 
 `get(key, fallback) / set(key, value) / delete(key) / all()`；值必须 JSON 可序列化。
 
-### `Coconut.ui`（`ui`，`overlay` / `injectCss` 另外需要 `dom`）
+### `Coconut.ui`（`ui`）
 
 浮层只由引擎管位置和层级，插件给「初始 html + 初始 css」，拿到 id 之后自己管显隐：
 
@@ -371,6 +430,31 @@ Coconut.ui.remove(id); // 删掉，再操作这个 id 会返回 false
 - `overlay` 返回的是数字 id（从 1 递增），同一个插件注册多个浮层各拿一个 id；
 - `visible` / `show` / `hide` / `remove` 都返回 boolean（没找到这个 id 时为 `false`）；
 - `injectCss(id, css)` 是**页面级**样式，跟浮层无关，同名再调一次是替换，传 `''` 撤销。
+
+**权限与净化**：`html` / `css` 是数据，**只要 `ui` 权限**。引擎会把 html 过一遍净化 （删 `<script>`
+/ `<iframe>` / `<object>` / `<embed>` / `<base>` / `<link>` / `<meta>`、 所有 `on*`
+事件属性、注释节点，以及 `javascript:` / `data:text/html` 这类 URL）， 所以不能借 html 跑代码。
+
+要在页面里跑代码用 `script`——它**额外需要 `dom` 权限**：
+
+```js
+const id = Coconut.ui.overlay({
+  html: '<div class="ring"></div>',
+  css: '.ring { position:absolute; inset:20%; border:2px solid #8fd3ff; }',
+  // 传函数：序列化后送到页面执行，参数是浮层根节点；返回函数 = 销毁回调
+  script: function (root) {
+    let raf = requestAnimationFrame(function tick() {
+      root.firstElementChild.style.opacity = String(Math.random());
+      raf = requestAnimationFrame(tick);
+    });
+    return function () {
+      cancelAnimationFrame(raf);
+    };
+  },
+});
+```
+
+`script` 的销毁回调会在 `Coconut.ui.remove(id)`、插件停用 / 重载时调用；页面关闭时整页一起消失。
 
 ### `Coconut.http`（`server`）
 

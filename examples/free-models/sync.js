@@ -22,7 +22,7 @@ async function waitForConfig() {
     return true;
   }
   for (let attempt = 0; attempt < 16; attempt++) {
-    const current = Coconut.callTool('get_ai_profiles', {}) || {};
+    const current = (await Coconut.tools.call('get_ai_profiles', {})) || {};
     const ids = new Set((current.profiles || []).map((profile) => String(profile.id)));
     if (stored.profiles.every((profile) => ids.has(String(profile.id)))) return true;
     await Coconut.sleep(250);
@@ -72,10 +72,10 @@ export async function runSync() {
   const aiOff = prefs.found === true && prefs.enabled === false && seeded;
 
   if (aiOff) {
-    const state = Coconut.callTool('get_ai_profiles', {}) || {};
+    const state = (await Coconut.tools.call('get_ai_profiles', {})) || {};
     let removed = 0;
     for (const profile of state.profiles || []) {
-      if (isManaged(profile) && deleteProfile(profile)) removed += 1;
+      if (isManaged(profile) && (await deleteProfile(profile))) removed += 1;
     }
     log(`用户关掉了 AI 助手，已清理 ${removed} 条免费模型配置`);
     return;
@@ -94,9 +94,9 @@ export async function runSync() {
   }
 
   retryCount = 0;
-  const result = syncModels(models, baseUrl());
-  const deduped = dedupeManaged();
-  setSetting('ai_enabled', true);
+  const result = await syncModels(models, baseUrl());
+  const deduped = await dedupeManaged();
+  await setSetting('ai_enabled', true);
   if (!seeded) {
     Coconut.storage.set('seeded', true);
     log(`首次使用：写入 ${models.length} 个免费模型并打开 AI 助手`);

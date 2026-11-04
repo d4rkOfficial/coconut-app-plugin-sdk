@@ -10,15 +10,15 @@ export type { CoconutToolName, CoconutToolParams };
 
 /** 插件能申请的权限；没声明就调用对应 API 会抛错。 */
 export type CoconutPermission =
-  /** Coconut.runJs：在工具箱页面里执行 JS */
+  /** 在工具箱页面里执行 JS（Coconut.toolbox.runJs、浮层的 script 片段） */
   | 'dom'
-  /** Coconut.callTool：调用工具箱的 WS 工具 */
+  /** 调用工具箱的 WS 工具（Coconut.callTool / Coconut.tools.call） */
   | 'toolbox'
   /** Coconut.fetch：由启动器代发 HTTP（不限域名） */
   | 'network'
   /** Coconut.storage：插件私有 KV（落盘到 plugins/storage/<id>.json） */
   | 'storage'
-  /** Coconut.ui：浮层 / 注入 CSS（同时需要 dom） */
+  /** Coconut.ui：浮层 / 注入 CSS / requestAnimationFrame（只画不跑代码） */
   | 'ui'
   /** Coconut.http：在启动器里开本地 HTTP / WebSocket 服务 */
   | 'server'
@@ -94,12 +94,29 @@ export interface CoconutFetchResult {
   json: unknown;
 }
 
-/** 注册浮层时的初始内容。 */
+/**
+ * 注册浮层时的初始内容。
+ *
+ * `html` / `css` 是**数据**：只有 `ui` 权限也能用。引擎会净化 html
+ * （去掉 `<script>` / `<iframe>` / on* 属性 / `javascript:` URL），
+ * 所以想画什么都可以，但不能借 html 偷偷跑代码。
+ *
+ * 要在页面里跑代码就用 `script`——它需要 `dom` 权限。
+ */
 export interface CoconutOverlayOptions {
-  /** 初始 HTML */
-  html?: string;
-  /** 初始 CSS（只作用于这个浮层内部的元素） */
-  css?: string;
+  /** 初始 HTML（也接受 `<html>` JSX 片段） */
+  html?: string | CoconutJsxChunk<'html'>;
+  /** 初始 CSS（也接受 `<style>` JSX 片段） */
+  css?: string | CoconutJsxChunk<'css'>;
+  /**
+   * 页面侧脚本：传函数会被序列化后调用，参数是浮层根节点；
+   * 返回一个函数就当销毁回调（浮层 remove / 插件停用时调用）。
+   * 也可以用 `<script>` JSX 片段。需要 `dom` 权限。
+   */
+  script?:
+    | string
+    | CoconutJsxChunk<'script'>
+    | ((root: HTMLElement) => void | (() => void));
 }
 
 /** 插件私有 KV：值是 JSON 可序列化的东西，落盘在 plugins/storage/<id>.json。 */
@@ -135,6 +152,22 @@ export interface CoconutUi {
    * 内容放在 <style id="css::<插件id>::<id>"> 里，重复调用会覆盖，传空串就撤掉。
    */
   injectCss(id: string, css: string): true;
+
+  /**
+   * 请求一帧回调：`callback` 拿到页面时间戳（毫秒）。
+   *
+   * 实现是「页面 rAF → 合并 → 回传插件线程」：
+   * - **≤30Hz、有 1～2 帧抖动**，只适合低频驱动（读数、状态轮询、节流后的重绘）；
+   * - 页面隐藏 / 最小化时自动暂停（和浏览器 rAF 一致）；
+   * - 想要 60fps 的视觉动画，把动画写进页面侧脚本（`overlay({ script })` 或
+   *   `Coconut.toolbox.runJs`），那里是原生 rAF。
+   *
+   * 页面会话结束（bye）时回调会被清空，需要在下一个 `onHello` 里重新注册。
+   * 需要 ui 权限。
+   */
+  requestAnimationFrame(callback: (timestamp: number) => void): number;
+  /** 取消一帧回调；最后一个被取消时引擎会停掉页面上的 rAF 循环。 */
+  cancelAnimationFrame(id: number): void;
 }
 
 /** 启动器信息（只读）。 */
@@ -163,16 +196,114 @@ export interface CoconutSrc {
   readonly static: CoconutSource;
 }
 
+/* ───────────────────────────── 事件对象 / 工具调用 / 工具箱 ───────────────────────────── */
+
+/**
+ * 所有事件共用的形状。`dispatchEvent` 是**同步**的，没有冒泡 / capture。
+ *
+ * `detail` 里有什么取决于事件类型；`preventDefault()` 只有 `cancelable: true`
+ * 的事件才有效（工具调用 / socket 事件都是普通事件）。
+ */
+export interface CoconutEventObject<T = unknown> {
+  readonly type: string;
+  readonly detail: T;
+  readonly target: CoconutEventTarget | null;
+  readonly currentTarget: CoconutEventTarget | null;
+  readonly timeStamp: number;
+  readonly defaultPrevented: boolean;
+  readonly cancelable: boolean;
+  preventDefault(): void;
+}
+
+/** 监听器选项：`once` / `signal`（AbortSignal）都支持，capture / passive 会被忽略。 */
+export interface CoconutAddEventListenerOptions {
+  once?: boolean;
+  signal?: AbortSignal;
+}
+
+/** 与 DOM `EventTarget` 同形的事件对象（插件也能自己 new 一个当总线）。 */
+export interface CoconutEventTarget {
+  addEventListener(
+    type: string,
+    listener: (event: CoconutEventObject) => void | Promise<void>,
+    options?: CoconutAddEventListenerOptions,
+  ): void;
+  removeEventListener(type: string, listener: (event: CoconutEventObject) => void): void;
+  dispatchEvent(event: CoconutEventObject): boolean;
+}
+
+/** 一次异步工具调用的结果。 */
+export interface CoconutToolResultDetail<T = unknown> {
+  /** 调用 id（从 1 递增，与 Promise 一一对应） */
+  readonly id: number;
+  readonly tool: string;
+  readonly args: unknown;
+  /** 成功时的工具返回值 */
+  readonly result?: T;
+  /** 失败时的错误文本 */
+  readonly error?: string;
+  /** 被 AbortSignal 中止 */
+  readonly aborted?: boolean;
+  /** 从发起到结束的毫秒数 */
+  readonly ms: number;
+}
+
+/** `Coconut.tools`：异步工具调用 + 结果事件。需要 toolbox 权限。 */
+export interface CoconutTools extends CoconutEventTarget {
+  /**
+   * 调用一个工具箱工具，返回 Promise（**不阻塞插件线程**）。
+   *
+   * 与同步的 `Coconut.callTool` 的区别：调用期间定时器 / socket / http 事件照常派发，
+   * 可以用 `options.signal` 中止（中止后结果被丢弃，工具箱那边的计算不会停下）。
+   */
+  call<K extends CoconutToolName>(
+    tool: K,
+    args?: CoconutToolParams[K],
+    options?: { signal?: AbortSignal },
+  ): Promise<unknown>;
+}
+
+/** `Coconut.toolbox`：工具箱本身。 */
+export interface CoconutToolbox {
+  /**
+   * 在工具箱页面里执行代码，返回页面侧的真实值（不再字符串化）。
+   *
+   * - 传字符串：当作函数体，必须自己 `return`；
+   * - 传函数对象：源码送到页面执行，后面的参数 JSON 序列化后传进去。
+   *   函数必须**自包含**（闭包变量在页面里不存在），且不能是 async 函数。
+   * - 传 `<script>` JSX 片段（`{ __coconut: 'script', text }`）也可以。
+   *
+   * 需要 dom 权限。
+   */
+  runJs<T = unknown>(code: string): T;
+  runJs<T = unknown>(fn: (...args: never[]) => T, ...args: unknown[]): T;
+  runJs<T = unknown>(chunk: CoconutJsxChunk<'script'>): T;
+
+  /** 关掉工具箱页面，回到启动器首页。需要 toolbox 权限。 */
+  exit(): true;
+}
+
+/** JSX 运行时产出的片段：`<script>` / `<html>` / `<style>`。 */
+export interface CoconutJsxChunk<K extends 'script' | 'html' | 'css' = 'script' | 'html' | 'css'> {
+  readonly __coconut: K;
+  readonly text: string;
+  toString(): string;
+}
+
+/* ───────────────────────────── 事件 / 工具 / 工具箱 结束 ───────────────────────────── */
+
 /* ───────────────────────────── HTTP / WebSocket ───────────────────────────── */
 
-/** 四段生命周期事件名（与 onStart / onHello / onEvent / onStop 对应）。 */
-export type CoconutLifecycleEventName = 'start' | 'hello' | 'event' | 'stop';
+/** 生命周期事件名（与 onStart / onHello / onEvent / onBye / onStop 对应）。 */
+export type CoconutLifecycleEventName = 'start' | 'hello' | 'event' | 'bye' | 'stop';
 
 /** 生命周期事件对象（Coconut.addEventListener 的回调入参）。 */
 export interface CoconutLifecycleEventMap {
   start: undefined;
   hello: CoconutHelloInfo;
   event: CoconutEvent;
+  /** 页面会话结束：关闭 / 重载 / 回到启动器。 */
+  bye: { session?: string } | undefined;
   stop: undefined;
 }
 
@@ -268,8 +399,15 @@ export interface CoconutWebSocket {
   readonly url: string;
   /** 握手成功后为 true；收到 close 后变 false。 */
   connected: boolean;
+  /** 0 CONNECTING / 1 OPEN / 2 CLOSING / 3 CLOSED（宿主同步连接，构造出来就是 OPEN）。 */
+  readonly readyState: number;
+  readonly CONNECTING: 0;
+  readonly OPEN: 1;
+  readonly CLOSING: 2;
+  readonly CLOSED: 3;
+  /** 不在 OPEN 状态时抛 `DOMException(name='InvalidStateError')`。 */
   send(data: string): boolean;
-  close(): boolean;
+  close(code?: number, reason?: string): boolean;
   addEventListener(type: 'open', listener: (event: Record<string, never>) => void | Promise<void>): this;
   addEventListener(
     type: 'message',
@@ -298,39 +436,35 @@ export interface CoconutContext {
   readonly plugin: CoconutPluginMeta;
 
   /**
-   * 在工具箱页面里执行 JS 并等它跑完。
+   * @deprecated 改用 {@link CoconutToolbox.runJs}：支持传函数对象、返回真实值而不是字符串。
    *
-   * ⚠️ 传的是**函数体**，不是表达式：工具箱会把它包成
-   * `return (async () => { <你的代码> })()`，所以必须自己 `return`。
-   * 有 `await` 也可以（工具箱那边是 async 上下文）。
+   * **运行时仍然可用**（只是第一次调用会在 console 打一条废弃警告），
+   * 这里把类型声明注释掉是为了让新代码编译期就被拦住。
    *
-   * 返回值统一转成字符串：返回对象 → JSON 文本（自己 `JSON.parse`）。
+   * ```ts
+   * // 旧写法（同步、返回字符串）
+   * // const count = Number(Coconut.runJs('return document.querySelectorAll(".card").length'));
    *
-   * @example
-   *   const count = Number(Coconut.runJs('return document.querySelectorAll(".card").length'));
-   *   const config = JSON.parse(Coconut.runJs(`
-   *     const db = await new Promise((resolve) => {
-   *       const req = indexedDB.open('wuwa-v1', 1);
-   *       req.onsuccess = () => resolve(req.result);
-   *       req.onerror = () => resolve(null);
-   *     });
-   *     return JSON.stringify(db ? db.name : null);
-   *   `));
+   * // 新写法（可传函数、返回真实值）
+   * const count = Coconut.toolbox.runJs(() => document.querySelectorAll('.card').length);
+   * ```
    */
-  runJs(code: string): string;
+  // runJs(code: string): string;
 
   /**
-   * 调用工具箱的任意 WS 工具（名字见工具箱的 AI 工具表）。
-   * 返回的是该工具的返回值本身（启动器已经把协议字段剥掉了）。
+   * @deprecated 改用 {@link CoconutTools.call}（异步 + 可中止 + 结果事件）。
    *
-   * 工具名和入参写在下方的 `tools.d.ts` 里（由工具箱包体生成）：名字能补全、
-   * 参数会被校验。返回类型是 `unknown`（工具箱没提供返回结构），要字段自己断言。
-   * 工具箱刚更新、`tools.d.ts` 还没重新生成时，可以用
-   * `Coconut.callTool('新工具名' as CoconutToolName, {...})` 绕过名字检查。
+   * **运行时仍然可用**（第一次调用会打废弃警告）。
    *
-   * 需要 toolbox 权限。
+   * ```ts
+   * // 旧写法（同步阻塞，最多 30s，期间事件全部停摆）
+   * // const state = Coconut.callTool('get_ai_profiles', {});
+   *
+   * // 新写法（不阻塞、可中止、能收事件）
+   * const state = await Coconut.tools.call('get_ai_profiles', {});
+   * ```
    */
-  callTool<K extends CoconutToolName>(tool: K, args?: CoconutToolParams[K]): unknown;
+  // callTool<K extends CoconutToolName>(tool: K, args?: CoconutToolParams[K]): unknown;
 
   /** 由启动器代发 HTTP 请求。需要 network 权限。 */
   fetch(url: string, options?: CoconutFetchOptions): CoconutFetchResult;
@@ -338,8 +472,14 @@ export interface CoconutContext {
   /** 插件私有 KV。需要 storage 权限。 */
   readonly storage: CoconutStorage;
 
-  /** 浮层 / CSS。需要 ui 权限（overlay / injectCss 还需要 dom）。 */
+  /** 浮层 / CSS / rAF。需要 ui 权限（浮层里带 script 片段时还需要 dom）。 */
   readonly ui: CoconutUi;
+
+  /** 工具箱本身：页面脚本执行（需要 dom）、回到启动器（需要 toolbox）。 */
+  readonly toolbox: CoconutToolbox;
+
+  /** 异步工具调用 + result / error 事件。需要 toolbox 权限。 */
+  readonly tools: CoconutTools;
 
   /** 启动器信息：语言 / 工具箱版本 / 游戏数据版本（只读，不需要权限）。 */
   readonly launcher: CoconutLauncherInfo;
@@ -395,7 +535,24 @@ declare global {
   var onStart: (() => void | Promise<void>) | undefined;
   var onHello: ((info: CoconutHelloInfo) => void | Promise<void>) | undefined;
   var onEvent: ((event: CoconutEvent) => void | Promise<void>) | undefined;
+  /** 页面会话结束（关闭 / 重载 / 回到启动器）：清浮层、断连接就在这里做。 */
+  var onBye: ((info?: { session?: string }) => void | Promise<void>) | undefined;
   var onStop: (() => void | Promise<void>) | undefined;
+
+  /* JSX：`.jsx` / `.tsx` 里可以写裸标签，由 plugin-api/jsx.ts 的 h() 认领。
+     - <script>…</script> → Coconut.toolbox.runJs(...)
+     - <html>…</html>     → Coconut.ui.overlay({ html })
+     - <style>…</style>   → Coconut.ui.overlay({ css })
+     其它标签渲染成 HTML 字符串。文件里记得 `import { h, Fragment } from '.../plugin-api/jsx.ts'`。 */
+  namespace JSX {
+    type Element = string | import('./coconut-plugin.d.ts').CoconutJsxChunk;
+    interface ElementChildrenAttribute {
+      children: Record<never, never>;
+    }
+    interface IntrinsicElements {
+      [tag: string]: Record<string, unknown>;
+    }
+  }
 
   /* 这几个宿主 API 都**没有**：fetch / URL / URLSearchParams / TextEncoder /
      TextDecoder / atob / btoa / structuredClone / crypto / Buffer / process /

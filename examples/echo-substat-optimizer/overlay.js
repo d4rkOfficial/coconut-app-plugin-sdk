@@ -3,7 +3,6 @@
  * 只做「把状态画出来」，不碰工具箱配装。
  */
 import { installDrag } from './page/drag.dom.js';
-import { pageCall } from './page/run.js';
 import { st, UI } from './state.js';
 import { textOn } from './theme.js';
 
@@ -273,10 +272,7 @@ export function renderOverlay() {
   st.lastCss = css;
   // 每次重渲染后重新装拖动（浮层是新的 DOM）
   try {
-    const result = Coconut.runJs(pageCall(installDrag));
-    if (result && typeof result.then === 'function') {
-      result.then(function () {}).catch(function () {});
-    }
+    Coconut.toolbox.runJs(installDrag);
   } catch {
     // 页面还没打开时忽略
   }

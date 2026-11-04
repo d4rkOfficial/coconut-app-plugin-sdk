@@ -82,20 +82,20 @@ coconut-app-plugin-sdk/
   examples/<id>/                ← 插件源码（目录名 = 插件 id = 产物文件名）
     index.js                    ← 入口：头部元数据 + 钩子 + 装配
     *.js                        ← 按功能拆的模块（state / api / render / …）
-    page/*.dom.js               ← 注入页面的自包含脚本（runJs 用）
-    page/run.js                 ← 把页面函数序列化成 runJs 代码
+    *.jsx                       ← 浮层与页面片段（JSX：<script> / <html> / <style>）
+    page/*.dom.js               ← 注入页面的自包含脚本（直接传给 toolbox.runJs）
   scripts/                      ← build / dev / deploy / pull / new / check / test / clean
   dist/                         ← 打包产物（不入库）
 ```
 
 ## 示例
 
-| 示例                     | 权限                                   | 模块划分 / 看点                                                                                                                         |
-| ------------------------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `buff-coverage`          | toolbox, ui, dom                       | `state` `snapshot` `geometry` `render` `theme` `measure` `refresh` + `page/*.dom.js`；只读浮层、几何标定、色块过渡动画                  |
-| `echo-substat-optimizer` | toolbox, ui, dom                       | `state` `api` `config` `slots` `search` `optimize` `overlay` `theme` `detect` + 5 个页面脚本；大量 `callTool` 编排、快照/还原、预算控制 |
-| `cjk-scramble`           | dom                                    | `chars` + 2 个页面脚本；`runJs` 注入自包含页面逻辑 + `MutationObserver`                                                                 |
-| `free-models`            | toolbox, dom, storage, network, server | `constants` `log` `models` `openai` `server` `profiles` `sync` `page` + 3 个页面脚本；自带 OpenAI 兼容服务、上游模型缓存、SSE 转换      |
+| 示例                     | 权限                                   | 模块划分 / 看点                                                                                                                           |
+| ------------------------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `buff-coverage`          | toolbox, ui, dom                       | `state` `snapshot` `geometry` `render` `theme` `measure` `refresh` + `page/*.dom.js`；只读浮层、几何标定、色块过渡动画                    |
+| `echo-substat-optimizer` | toolbox, ui, dom                       | `state` `api` `config` `slots` `search` `optimize` `overlay` `theme` `detect` + 5 个页面脚本；大量 `tools.call` 编排、快照/还原、预算控制 |
+| `cjk-scramble`           | dom                                    | `chars` + 2 个页面脚本；`toolbox.runJs` 注入自包含页面逻辑 + `MutationObserver`                                                           |
+| `free-models`            | toolbox, dom, storage, network, server | `constants` `log` `models` `openai` `server` `profiles` `sync` `page` + 3 个页面脚本；自带 OpenAI 兼容服务、上游模型缓存、SSE 转换        |
 
 ## 打包做了什么
 
@@ -110,7 +110,7 @@ coconut-app-plugin-sdk/
 
 ## 页面脚本约定（`page/*.dom.js`）
 
-要通过 `Coconut.runJs` 在工具箱页面里跑的代码**不要手写字符串**，写成普通函数：
+要在工具箱页面里跑的代码**不要手写字符串**，写成普通函数，直接传给 `Coconut.toolbox.runJs`：
 
 ```js
 // page/apply.dom.js —— 自包含：不 import、不引用模块级常量，需要的数据用参数
@@ -118,18 +118,38 @@ export function applyThing(payload) {
   document.querySelectorAll('.x').forEach((el) => {
     el.dataset.bound = '1';
   });
-  return JSON.stringify({ ok: true, payloadLength: payload.length });
+  return { ok: true, payloadLength: payload.length }; // 直接返回数据，不用 JSON.stringify
 }
 
 // index.js
 import { applyThing } from './page/apply.dom.js';
-import { pageCall } from './page/run.js';
-const result = await Coconut.runJs(pageCall(applyThing, someData));
+const result = await Coconut.toolbox.runJs(applyThing, someData);
 ```
 
-`pageCall` 把函数 `toString()` 出来包成 `return (fn)(args)`，跟着一起被压缩。 `deno task check`
-会：报错任何 `.dom.js` 里的 `import` / 模块级 `const`，
+引擎会 `toString()` 出函数源码、带到页面里执行，参数 JSON 序列化后传进去；返回值是**真实值**。
+不再需要 `pageCall` / `page/run.js` 那层字符串拼接。
+
+`deno task check` 会：报错任何 `.dom.js` 里的 `import` / 模块级 `const`，
 并在沙箱里把函数跑一遍，抓「引用了页面不存在的全局」这类忘了传参数的问题。
+
+## JSX 片段（`.jsx` / `.tsx`）
+
+三个裸标签直接产出引擎认识的东西，不用再手拼 HTML 字符串：
+
+```jsx
+import { Fragment, h } from '../../plugin-api/jsx.ts';
+
+const view = (
+  <html>
+    <div class='card'>{title}</div>
+  </html>
+); // → ui.overlay({ html: view })
+const skin = <style>{`.card{color:#fff}`}</style>; // → ui.overlay({ css: skin })
+const boot = <script>{`document.body.dataset.ok = 1`}</script>; // → toolbox.runJs(boot)
+```
+
+Deno（`deno.json` 的 `jsxFactory: "h"`）和 esbuild（`jsx: 'transform'` + `.jsx/.tsx`
+loader）都配好了， `deno task build` 会正确编译。
 
 ## 与启动器配合
 

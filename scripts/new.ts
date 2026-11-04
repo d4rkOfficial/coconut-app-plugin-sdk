@@ -39,7 +39,8 @@ if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || id.startsWith('_')) {
   Deno.exit(1);
 }
 
-const templatePath = join(templatesDir, 'plugin', 'index.js');
+const templateDir = join(templatesDir, 'plugin');
+const templatePath = join(templateDir, 'index.js');
 if (!exists(templatePath)) {
   fail(`模板不存在：${rel(templatePath)}`);
   Deno.exit(1);
@@ -70,6 +71,11 @@ const rendered = template
 
 Deno.mkdirSync(join(examplesDir, id), { recursive: true });
 Deno.writeTextFileSync(dest, rendered);
+// 模板目录里的其它文件（比如 overlay.jsx）原样复制过去
+for (const entry of Deno.readDirSync(templateDir)) {
+  if (!entry.isFile || entry.name === 'index.js') continue;
+  Deno.copyFileSync(join(templateDir, entry.name), join(examplesDir, id, entry.name));
+}
 
 log(`${green('✔')} 已创建 ${bold(id)} → ${cyan(rel(dest))}`);
 log(`  显示名：${name}`);

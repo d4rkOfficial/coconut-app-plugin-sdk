@@ -27,9 +27,7 @@ export function findThemeMode(value) {
 export async function readDark() {
   let dark = true;
   try {
-    const pending = Coconut.callTool('get_settings_state', {});
-    const raw = pending && typeof pending.then === 'function' ? await pending : pending;
-    let state = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+    let state = (await Coconut.tools.call('get_settings_state', {})) || {};
     if (state && state.data && !state.items) state = state.data;
     dark = findThemeMode(state) !== 'light';
   } catch {

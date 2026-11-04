@@ -79,6 +79,12 @@ export function optionsFor(id: string, opts: BuildOptions = {}): esbuild.BuildOp
     minify: opts.minify !== false,
     legalComments: 'none',
     banner: { js: `${header.raw}\n` },
+    // JSX：`<script>` / `<html>` / `<style>` 三个裸标签由 plugin-api/jsx.ts 的 h() 认领
+    jsx: 'transform',
+    jsxFactory: 'h',
+    jsxFragment: 'Fragment',
+    loader: { '.jsx': 'jsx', '.tsx': 'tsx' },
+    resolveExtensions: ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.json'],
     metafile: true,
     absWorkingDir: repoRoot,
     logLevel: 'warning',

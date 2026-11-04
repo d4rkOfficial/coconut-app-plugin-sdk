@@ -3,7 +3,6 @@
  */
 import { call } from './api.js';
 import { readThemeVars } from './page/theme.dom.js';
-import { pageCall } from './page/run.js';
 import { st } from './state.js';
 
 /** 在任意嵌套的设置对象里找 dark / light。 */
@@ -55,10 +54,8 @@ export async function loadTheme() {
     // 读不到设置就沿用上次的主题
   }
   try {
-    const pending = Coconut.runJs(pageCall(readThemeVars));
-    const raw = pending && typeof pending.then === 'function' ? await pending : pending;
-    if (!raw) return;
-    const vars = JSON.parse(raw);
+    const vars = await Coconut.toolbox.runJs(readThemeVars);
+    if (!vars) return;
     if (vars.ab) st.accentBg = vars.ab;
     if (vars.at) st.accentText = vars.at;
     if (vars.sr !== '' && vars.sr != null) {

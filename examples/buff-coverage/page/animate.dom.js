@@ -31,5 +31,5 @@ export function animateBars(oldGeo, fresh) {
     el.style.left = item.to.left + '%';
     el.style.width = item.to.width + '%';
   }
-  return JSON.stringify(freshMap);
+  return freshMap;
 }

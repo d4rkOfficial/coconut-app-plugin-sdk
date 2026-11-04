@@ -107,14 +107,26 @@ export function rel(target: string): string {
 
 /* ───────────────────────── 入口发现 ───────────────────────── */
 
-/** `examples/` 下所有可打包插件（跳过 `_` / `.` 开头、没有 index.js 的目录）。 */
+/** 支持的入口文件名（按优先级）。`.jsx` / `.tsx` 让 JSX 也能当入口。 */
+const ENTRY_NAMES = ['index.js', 'index.jsx', 'index.tsx'];
+
+/** 找插件入口：`index.js` → `index.jsx` → `index.tsx`，都没有返回空串。 */
+export function findEntry(dir: string): string {
+  for (const name of ENTRY_NAMES) {
+    const candidate = join(dir, name);
+    if (exists(candidate)) return candidate;
+  }
+  return '';
+}
+
+/** `examples/` 下所有可打包插件（跳过 `_` / `.` 开头、没有入口文件的目录）。 */
 export function listExamples(only: string[] = []): string[] {
   if (!exists(examplesDir)) return [];
   const names = [...Deno.readDirSync(examplesDir)]
     .filter((entry) => entry.isDirectory)
     .map((entry) => entry.name)
     .filter((name) => !name.startsWith('_') && !name.startsWith('.'))
-    .filter((name) => exists(join(examplesDir, name, 'index.js')))
+    .filter((name) => Boolean(findEntry(join(examplesDir, name))))
     .sort();
   if (!only.length) return names;
   const picked = names.filter((name) => only.includes(name));
@@ -127,7 +139,7 @@ export function listExamples(only: string[] = []): string[] {
 }
 
 export function entryOf(id: string): string {
-  return join(examplesDir, id, 'index.js');
+  return findEntry(join(examplesDir, id)) || join(examplesDir, id, 'index.js');
 }
 
 export function outfileOf(id: string): string {

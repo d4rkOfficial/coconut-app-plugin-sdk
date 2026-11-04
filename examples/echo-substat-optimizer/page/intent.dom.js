@@ -53,5 +53,5 @@ export function readOverlayIntent() {
     for (const el of document.querySelectorAll(selector)) ripple(el);
   }
 
-  return JSON.stringify({ run: run, char: char, n: n, pos: pos });
+  return { run: run, char: char, n: n, pos: pos };
 }

@@ -157,11 +157,12 @@ function lineOf(source: string, index: number): number {
   return source.slice(0, index).split('\n').length;
 }
 
+/** 插件源码（含 JSX / TSX）——`.dom.js` 是页面脚本，单独走自包含检查。 */
 function walkJs(dir: string, out: string[] = []): string[] {
   for (const entry of Deno.readDirSync(dir)) {
     const full = join(dir, entry.name);
     if (entry.isDirectory) walkJs(full, out);
-    else if (entry.isFile && entry.name.endsWith('.js')) out.push(full);
+    else if (entry.isFile && /\.(js|jsx|ts|tsx)$/.test(entry.name)) out.push(full);
   }
   return out.sort();
 }
@@ -306,10 +307,24 @@ async function checkPlugin(id: string): Promise<Issue[]> {
     }
   }
 
-  // 4. 语法（esbuild 解析，等价 node --check）
+  // 4. 语法（esbuild 解析，等价 node --check；.jsx / .tsx 走对应 loader）
   for (const file of files) {
+    const loader = file.endsWith('.tsx')
+      ? 'tsx'
+      : file.endsWith('.jsx')
+      ? 'jsx'
+      : file.endsWith('.ts')
+      ? 'ts'
+      : 'js';
     try {
-      await esbuild.transform(readText(file), { loader: 'js', format: 'esm', sourcefile: file });
+      await esbuild.transform(readText(file), {
+        loader,
+        format: 'esm',
+        sourcefile: file,
+        jsx: 'transform',
+        jsxFactory: 'h',
+        jsxFragment: 'Fragment',
+      });
     } catch (error) {
       issues.push({
         level: 'error',

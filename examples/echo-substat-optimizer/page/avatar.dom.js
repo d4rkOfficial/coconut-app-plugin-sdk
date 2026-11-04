@@ -1,6 +1,6 @@
 /**
  * 页面侧脚本：扫描配装页真实渲染的 `<img>`，按最近祖先文本映射到角色名。
- * 返回 JSON 数组：`[{ name, src }]`。
+ * 返回数组：`[{ name, src }]`。
  */
 export function collectAvatars() {
   const out = [];
@@ -27,5 +27,5 @@ export function collectAvatars() {
       out.push({ name: text, src: src });
     }
   }
-  return JSON.stringify(out);
+  return out;
 }

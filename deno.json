@@ -3,6 +3,9 @@
     "lib": ["dom", "dom.iterable", "deno.ns"],
     "strict": true,
     "noImplicitAny": false,
+    "jsx": "react",
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment",
     "types": ["./plugin-api/coconut-plugin.d.ts", "./plugin-api/tools.d.ts"]
   },
   "imports": {
@@ -19,7 +22,13 @@
   "lint": {
     "rules": {
       "tags": ["recommended"],
-      "exclude": ["no-explicit-any", "no-unused-vars", "require-await", "no-empty"]
+      "exclude": [
+        "no-explicit-any",
+        "no-unused-vars",
+        "require-await",
+        "no-empty",
+        "jsx-key"
+      ]
     },
     "exclude": ["plugin-api"]
   },

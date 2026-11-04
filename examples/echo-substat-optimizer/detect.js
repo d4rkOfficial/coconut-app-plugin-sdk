@@ -1,43 +1,27 @@
 /**
  * 页面探测：是否在词条页、浮窗交互意图、角色头像。
+ *
+ * 页面脚本直接交给 `Coconut.toolbox.runJs`（函数对象 + 参数），
+ * 返回值就是页面里 return 的真实值，不用再 JSON.parse。
  */
 import { collectAvatars } from './page/avatar.dom.js';
 import { readConfigView } from './page/config.dom.js';
 import { readOverlayIntent } from './page/intent.dom.js';
-import { pageCall } from './page/run.js';
 import { st } from './state.js';
-
-/** 跑一段页面脚本，兼容「同步返回 / 返回 Promise」两种宿主实现。 */
-async function runPage(code) {
-  const pending = Coconut.runJs(code);
-  return pending && typeof pending.then === 'function' ? await pending : pending;
-}
 
 /** 当前是否在词条页（内容识别为主，导航激活态兜底）。 */
 export async function detectConfig() {
-  let raw;
   try {
-    raw = await runPage(pageCall(readConfigView));
+    return (await Coconut.toolbox.runJs(readConfigView)) || { onConfig: false };
   } catch (error) {
     return { onConfig: false, err: String(error) };
-  }
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    return { onConfig: false, parseErr: String(error), raw: String(raw).slice(0, 160) };
   }
 }
 
 /** 读浮窗交互意图（按钮/胶囊点击）。 */
 export async function readIntent() {
-  let raw;
   try {
-    raw = await runPage(pageCall(readOverlayIntent));
-  } catch {
-    return {};
-  }
-  try {
-    const value = JSON.parse(raw);
+    const value = await Coconut.toolbox.runJs(readOverlayIntent);
     return value && typeof value === 'object' ? value : {};
   } catch {
     return {};
@@ -47,8 +31,7 @@ export async function readIntent() {
 /** 读角色头像：把配装页真实 `<img>` 的 src 映射到角色名（相对路径用工具箱地址补全）。 */
 export async function loadAvatars() {
   try {
-    const raw = await runPage(pageCall(collectAvatars));
-    const list = JSON.parse(raw);
+    const list = await Coconut.toolbox.runJs(collectAvatars);
     const base = (Coconut.src && Coconut.src.toolbox && Coconut.src.toolbox.url) || '';
     const all = {};
     for (const item of (Array.isArray(list) ? list : [])) {

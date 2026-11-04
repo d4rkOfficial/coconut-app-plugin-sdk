@@ -1,5 +1,5 @@
 // 由 plugin-api/generate-tools.ts 自动生成，请勿手改。
-// 工具箱包体：version 1792505960276（2026-11-03 生成）
+// 工具箱包体：version 1793813983076（2026-11-04 生成）
 // 工具箱更新后重新跑：deno task tools
 
 /** 每个 WS 工具的入参（来自工具箱自己的 JSON Schema）。 */
@@ -157,6 +157,30 @@ export interface CoconutToolParams {
   };
 
   /**
+   * 在当前工程 Buff 树新建文件夹（最多两级）。name 只能是短名，不能含反斜杠；parentFolderId 省略则建在根。
+   */
+  create_buff_folder: {
+    /** 文件夹短名（不能含 \） */
+    name: string;
+    /** global / nonGlobal，默认 nonGlobal */
+    tab?: string;
+    /** 可选：父文件夹 id（最多两级） */
+    parentFolderId?: string;
+  };
+
+  /**
+   * 在本地自定义 Buff 集实体中新建一级文件夹（工坊来源实体只读）。
+   */
+  create_buff_set_folder: {
+    /** 实体类型 */
+    entityType: string;
+    /** 实体名称 */
+    entityName: string;
+    /** 文件夹短名（不能含 \） */
+    name: string;
+  };
+
+  /**
    * 新建一个工程并切换为当前活动工程。
    */
   create_project: {
@@ -189,6 +213,14 @@ export interface CoconutToolParams {
   };
 
   /**
+   * 删除当前工程非全局 Buff 文件夹（含其中 Buff，递归删除；全局树受保护）。
+   */
+  delete_buff_folder: {
+    /** 文件夹 id */
+    folderId: string;
+  };
+
+  /**
    * 从本地 Buff 集删除指定实体（不可恢复）。
    */
   delete_buff_set_entity: {
@@ -196,6 +228,18 @@ export interface CoconutToolParams {
     entityType: string;
     /** 要删除的实体名称（中文） */
     entityName: string;
+  };
+
+  /**
+   * 删除本地自定义 Buff 集实体的一级文件夹；成员 Buff 移回根目录，不删除 Buff。
+   */
+  delete_buff_set_folder: {
+    /** 实体类型 */
+    entityType: string;
+    /** 实体名称 */
+    entityName: string;
+    /** 文件夹短名 */
+    name: string;
   };
 
   /**
@@ -446,7 +490,7 @@ export interface CoconutToolParams {
   get_non_direct_options: Record<string, never>;
 
   /**
-   * 查看当前所有弹窗面板的开关状态（工程 Buff 配置/速查/主页 Buff 集/设置/工坊/角色详情配置/从 Buff 集导入工程 Buff 配置等）。
+   * 查看当前所有弹窗面板的开关状态（工程 Buff 配置/速查/主页 Buff 集/设置/配置同步/排轴页按键图标/工坊/角色详情配置/从 Buff 集导入工程 Buff 配置等）。
    */
   get_panels_state: Record<string, never>;
 
@@ -582,6 +626,19 @@ export interface CoconutToolParams {
   };
 
   /**
+   * 导出当前库街区登录的 token（服务端从 httpOnly cookie 读回，即设置里的「导出 Token」）。用于用户要把凭据迁移到其它工具/设备时复制；token 等同登录凭据，只应原样转给用户本人，不要写入工程数据或复述给第三方。
+   */
+  kuro_export_token: Record<string, never>;
+
+  /**
+   * 用库街区 token 登录（用户在库街区 App / H5 里复制的登录凭据；可整段粘贴，服务端会自动提取 token 值）。验证码登录必须由用户在设置里手动完成，AI 只有这一条登录路径；token 需先用 ask_user 向用户索要。服务端会先向上游校验 token，无效则报错且不会覆盖已有登录态；成功后返回账号与绑定角色。
+   */
+  kuro_login_with_token: {
+    /** 库街区 token（可整段粘贴，含 token= 或 JSON 片段会自动提取） */
+    token: string;
+  };
+
+  /**
    * 退出库街区登录（同时清除本地声骸数据暂存）。用户要求退出或换账号时使用。
    */
   kuro_logout: Record<string, never>;
@@ -593,6 +650,21 @@ export interface CoconutToolParams {
     /** 可选：character/weapon/echo/1set-5set */
     entityType?: string;
   };
+
+  /**
+   * 列出本地 Buff 集某实体的一级文件夹（含空文件夹与排序）。
+   */
+  list_buff_set_folders: {
+    /** 实体类型：character/weapon/echo/1set-5set */
+    entityType: string;
+    /** 实体名称 */
+    entityName: string;
+  };
+
+  /**
+   * 查看当前工程的两个 Buff 根（global / nonGlobal）的文件夹与 Buff 全名。文件夹有 id/name/path，Buff 有 id/full name/short name；用于定位后再调用文件夹管理工具。
+   */
+  list_buff_tree: Record<string, never>;
 
   /**
    * 列出自定义倍率（自定义直伤）：按角色返回名称、固定值、百分比、单位、属性、段数与渲染后的倍率串。character 省略时列出当前队伍全部角色。创建 / 修改后用 get_char_skills 也能看到它们并绑定到操作块。
@@ -679,6 +751,30 @@ export interface CoconutToolParams {
   };
 
   /**
+   * 把本地自定义 Buff 集实体的一条 Buff 移入一级文件夹（folder 省略/空 = 移回根）；短名不变，全名前缀级联更新。
+   */
+  move_buff_set_buff_to_folder: {
+    /** 实体类型 */
+    entityType: string;
+    /** 实体名称 */
+    entityName: string;
+    /** 当前 Buff 全名 */
+    buffName: string;
+    /** 目标文件夹短名；空 = 根 */
+    folder?: string;
+  };
+
+  /**
+   * 把当前工程的一个文件夹或 Buff 移到目标容器（targetFolderId 省略则移到所在根目录）。保持同一 global/nonGlobal 页签；移动后 Buff 全名级联更新。
+   */
+  move_buff_tree_node: {
+    /** 文件夹 id 或 Buff id */
+    nodeId: string;
+    /** 可选：目标文件夹 id；省略 = 根 */
+    targetFolderId?: string;
+  };
+
+  /**
    * 把已有操作块移动到指定位置（按**序号**）：position 为 {time: 秒}（绝对时间 0 至当前结束线）或 {anchor: 块序号, side: before/after（默认 after）, offset?: 秒}（相对某块）。移动后自动消除同轨道重叠。
    */
   move_op_block: {
@@ -720,7 +816,7 @@ export interface CoconutToolParams {
   open_kuro_sync_preview: Record<string, never>;
 
   /**
-   * 打开或关闭指定弹窗面板：buff-set=主页 Buff 集（打开时先返回主页）；buff-conf=当前工程拉表的工程 Buff 配置；buff-conf-import=从 Buff 集导入工程 Buff 配置。两者是不同入口，用户说“打开 Buff 集”时用 buff-set，含义不清时先用 ask_user 确认。其它 panel 取 get_panels_state 返回的 name（quick-lookup/substat-library/settings/workshop/character-detail/damage-list 等）；open 默认 true。
+   * 打开或关闭指定弹窗面板：buff-set=主页 Buff 集（打开时先返回主页）；buff-conf=当前工程拉表的工程 Buff 配置；buff-conf-import=从 Buff 集导入工程 Buff 配置。两者是不同入口，用户说“打开 Buff 集”时用 buff-set，含义不清时先用 ask_user 确认。其它 panel 取 get_panels_state 返回的 name（quick-lookup/substat-library/settings/config-sync/keymap-editor/workshop/character-detail/damage-list 
    */
   open_panel: {
     /** buff-set=主页 Buff 集；buff-conf=工程 Buff 配置；buff-conf-import=导入工程 Buff 配置；其它见 get_panels_state */
@@ -821,6 +917,30 @@ export interface CoconutToolParams {
   };
 
   /**
+   * 重命名当前工程 Buff 文件夹（只改短名；后代 Buff 全名会级联更新）。
+   */
+  rename_buff_folder: {
+    /** 文件夹 id（用 list_buff_tree 获取） */
+    folderId: string;
+    /** 新短名（不能含 \） */
+    name: string;
+  };
+
+  /**
+   * 重命名本地自定义 Buff 集实体的文件夹；成员 Buff 的全名前缀会级联更新。
+   */
+  rename_buff_set_folder: {
+    /** 实体类型 */
+    entityType: string;
+    /** 实体名称 */
+    entityName: string;
+    /** 原文件夹短名 */
+    oldName: string;
+    /** 新文件夹短名（不能含 \） */
+    name: string;
+  };
+
+  /**
    * 修改伤害条目的显示名（按 get_damage_entries 的**序号**）。只改 AI/界面看到的 displayName，不改底层命中 id、倍率或 Buff 绑定；传空串恢复默认显示名。
    */
   rename_damage_entry: {
@@ -850,6 +970,30 @@ export interface CoconutToolParams {
     name: string;
     /** 新方案名 */
     newName: string;
+  };
+
+  /**
+   * 把当前工程某个文件夹在同级上移/下移一位（delta = -1 上移，1 下移）。
+   */
+  reorder_buff_folder: {
+    /** 文件夹 id */
+    folderId: string;
+    /** -1 上移 / 1 下移 */
+    delta: number;
+  };
+
+  /**
+   * 把本地自定义 Buff 集实体的一级文件夹上移/下移一位（delta=-1/1）。
+   */
+  reorder_buff_set_folder: {
+    /** 实体类型 */
+    entityType: string;
+    /** 实体名称 */
+    entityName: string;
+    /** 文件夹短名 */
+    name: string;
+    /** -1 上移 / 1 下移 */
+    delta: number;
   };
 
   /**
@@ -1272,15 +1416,17 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 整体覆写主页的本地 Buff 集中指定实体的 Buff 列表；仅在用户明确要求维护 Buff 集时使用，不用于给工程配 Buff（该实体来源变为 custom）。buffs 结构：[{"buffName":"名称","scope":"self|self_except|team|effect_only","exclusive":false,"condition":{...可选},"zones":[{"zoneId":"乘区id","value":数值,"override":false,"ref":{...可选}}]}]。
+   * 整体覆写主页的本地 Buff 集中指定实体的 Buff 列表；仅在用户明确要求维护 Buff 集时使用，不用于给工程配 Buff（该实体来源变为 custom）。buffName 必须是全名（文件夹A\buff名，根 Buff 直接写短名）；folders 可传空文件夹/排序。buffs 结构：[{"buffName":"文件夹A\\buff名","scope":"self|self_except|team|effect_only","exclusive":false,"condition":{...可选},"zones":[...]}]。
    */
   update_buff_set_entity_buffs: {
     /** 实体类型：character/weapon/echo/1set-5set */
     entityType: string;
     /** 实体名称（中文） */
     entityName: string;
-    /** 完整 Buff 列表（整体覆写，格式见工具描述） */
+    /** 完整 Buff 列表（整体覆写，buffName 为全名，格式见工具描述） */
     buffs: Record<string, never>[];
+    /** 可选：一级文件夹列表 [{name, sortOrder}]，用于保留空文件夹/排序 */
+    folders?: Record<string, never>[];
   };
 
   /**

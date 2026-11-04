@@ -55,5 +55,5 @@ export function readConfigView() {
   } catch (e) {
     out.err = String(e);
   }
-  return JSON.stringify(out);
+  return out;
 }

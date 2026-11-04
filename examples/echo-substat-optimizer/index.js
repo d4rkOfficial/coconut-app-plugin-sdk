@@ -185,9 +185,22 @@ async function onStop() {
   st.started = false;
 }
 
+/** 页面会话结束：浮层随页面消失，停掉轮询、清掉渲染缓存。 */
+async function onBye() {
+  if (st.timer) {
+    Coconut.clearInterval(st.timer);
+    st.timer = null;
+  }
+  st.ovId = 0;
+  st.lastHtml = '';
+  st.lastCss = '';
+  st.started = false;
+}
+
 // —— 交给插件宿主 ——
 // 打包成 IIFE 后函数声明不在全局作用域，宿主只在 globalThis 上找钩子。
 globalThis.onStart = onStart;
 globalThis.onHello = onHello;
 globalThis.onEvent = onEvent;
+globalThis.onBye = onBye;
 globalThis.onStop = onStop;

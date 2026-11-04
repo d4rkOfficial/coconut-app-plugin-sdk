@@ -24,7 +24,7 @@ export function measureTimeline() {
         }
       }
       if (!gutter) {
-        resolve(JSON.stringify(out));
+        resolve(out);
         return;
       }
       out.onTimeline = true;
@@ -64,7 +64,7 @@ export function measureTimeline() {
       }
       const open = indexedDB.open('wuwa-v1');
       open.onerror = function () {
-        resolve(JSON.stringify(out));
+        resolve(out);
       };
       open.onsuccess = function () {
         try {
@@ -95,9 +95,9 @@ export function measureTimeline() {
                 posById[String(block.id)] = Number(block.pos) || 0;
               }
               out.posById = posById;
-              resolve(JSON.stringify(out));
+              resolve(out);
             } catch (e) {
-              resolve(JSON.stringify(out));
+              resolve(out);
             }
           };
           g1.onsuccess = function () {
@@ -115,11 +115,11 @@ export function measureTimeline() {
             if (--left === 0) done();
           };
         } catch (e) {
-          resolve(JSON.stringify(out));
+          resolve(out);
         }
       };
     } catch (e) {
-      resolve(JSON.stringify({ onTimeline: false }));
+      resolve({ onTimeline: false });
     }
   });
 }

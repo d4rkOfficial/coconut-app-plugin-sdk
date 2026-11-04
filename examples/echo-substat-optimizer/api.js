@@ -15,22 +15,10 @@ export function log(message) {
   }
 }
 
-/** 调工具箱工具：同步/异步统一，字符串 JSON.parse，解包 `data` 与 `ok:false`。 */
+/** 调工具箱工具：异步、不阻塞插件线程；解包 `data` 与 `ok:false`。 */
 export function call(name, args) {
-  try {
-    const pending = Coconut.callTool(name, args || {});
-    const promise = pending && typeof pending.then === 'function'
-      ? pending
-      : Promise.resolve(pending);
-    return promise.then((result) => {
-      let value = result;
-      if (typeof result === 'string') {
-        try {
-          value = JSON.parse(result);
-        } catch {
-          return { __raw: result };
-        }
-      }
+  return Coconut.tools.call(name, args || {}).then(
+    (value) => {
       if (value && typeof value === 'object' && value.ok === false) {
         return { __err: value.error || `执行失败:${name}` };
       }
@@ -38,10 +26,9 @@ export function call(name, args) {
         return value.data;
       }
       return value;
-    });
-  } catch (error) {
-    return Promise.resolve({ __err: String((error && error.message) || error) });
-  }
+    },
+    (error) => ({ __err: String((error && error.message) || error) }),
+  );
 }
 
 export function sleep(ms) {

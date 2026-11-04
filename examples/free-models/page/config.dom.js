@@ -20,5 +20,5 @@ export async function readAiConfig() {
       };
     };
   });
-  return JSON.stringify(value);
+  return value;
 }

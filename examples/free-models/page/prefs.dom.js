@@ -27,5 +27,5 @@ export async function readAiPrefs() {
       };
     };
   });
-  return JSON.stringify(value);
+  return value;
 }

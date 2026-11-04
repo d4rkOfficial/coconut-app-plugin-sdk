@@ -4,16 +4,14 @@
  */
 import { fitPos } from './geometry.js';
 import { animateBars, measure, placeOverlay } from './measure.js';
-import { buildHtml, overlayCss } from './render.js';
+import { buildHtml, overlayCss } from './render.jsx';
 import { buildSnapshot } from './snapshot.js';
 import { st } from './state.js';
 import { readDark } from './theme.js';
 
-/** 调工具箱工具并解包成对象（兼容字符串 / { data } 包装 / Promise）。 */
+/** 调工具箱工具并解包成对象（异步、不阻塞插件线程）。 */
 async function toolJson(name, args) {
-  const pending = Coconut.callTool(name, args);
-  const raw = pending && typeof pending.then === 'function' ? await pending : pending;
-  let value = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+  let value = (await Coconut.tools.call(name, args)) || {};
   if (value && value.data && !value.items) value = value.data;
   return value;
 }
@@ -98,16 +96,17 @@ export async function refresh() {
       height: m.barTop != null ? m.barTop - m.gutterTop : 0,
     });
     const css = overlayCss(dark);
-    if (built.html !== st.lastHtml || css !== st.themeCss) {
+    const htmlText = built.html.text;
+    if (htmlText !== st.lastHtml || css !== st.themeCss) {
       if (st.ovId) Coconut.ui.remove(st.ovId);
       st.ovId = Coconut.ui.overlay({ html: built.html, css });
-      st.lastHtml = built.html;
+      st.lastHtml = htmlText;
       st.themeCss = css;
       // 色块位置变化重加载动画：按稳定 key 把旧位置平滑过渡到新位置；新增色块淡入
       const next = await animateBars(st.barGeo, built.bars);
       if (next) st.barGeo = next;
     }
-    await placeOverlay(m);
+    placeOverlay(m);
     if (st.ovId) Coconut.ui.show(st.ovId);
   } catch (err) {
     if (st.ovId) Coconut.ui.hide(st.ovId);
