@@ -1,34 +1,39 @@
 /**
- * 插件 JSX 运行时：让 `.jsx` / `.tsx` 里的裸标签直接产出引擎认识的东西。
+ * 插件 JSX 运行时。
+ *
+ * **新写法（推荐）——一个标签只干一件事：**
  *
  * ```jsx
- * import { h, Fragment } from '../../plugin-api/jsx.ts';
+ * import { css, h, html, script } from '../../plugin-api/jsx.ts';
  *
- * const view = <html><div class="card">{title}</div></html>;   // → Coconut.ui.overlay({ html: view })
- * const skin = <style>{`.card{color:#fff}`}</style>;           // → Coconut.ui.overlay({ css: skin })
- * const boot = <script>{`document.body.dataset.ready = '1'`}</script>; // → Coconut.toolbox.runJs(boot)
+ * const view = <div class='card'>{title}</div>;             // → ui.overlay({ html: view })
+ * const skin = css`.card { color: #fff }`;                  // → ui.overlay({ css: skin })
+ * const boot = script`document.body.dataset.ready = '1'`;   // → toolbox.runJs(boot)
+ * const part = html`<i>${prebuiltHtml}</i>`;                // 现成 HTML 原样插入（= raw()）
  * ```
  *
- * 三种裸标签产出「片段对象」`{ __coconut, text }`，运行时按 `__coconut` 认领：
- *   - `<script>` → `Coconut.toolbox.runJs(...)`
- *   - `<html>`   → `Coconut.ui.overlay({ html })`
- *   - `<style>`  → `Coconut.ui.overlay({ css })`
+ * 规则只有三条：
+ *   1. **JSX 只负责 HTML**：任意 JSX 表达式（顶层 `<div>` 即可，不用包 `<html>`）产出
+ *      {@link Markup}，直接给 `Coconut.ui.overlay({ html })`，也能当字符串用；
+ *   2. **CSS / 页面脚本用标签模板** `css`…`` / `script`…``，内容原样取，不转义；
+ *   3. **文本自动转义**：JSX 的文本子节点和 `{}` 插值都会转义 `& < >`；想塞现成的 HTML
+ *      用 {@link html} 标签模板或 {@link raw} 包一层。
  *
- * 转义规则：
- *   - **普通字符串子节点自动转义**（`& < >`），想塞现成 HTML 用 {@link raw}；
- *   - `<script>` / `<style>` 的子节点按原文取（那是代码，不是文本）；
- *   - 嵌套标签返回的是 {@link Markup}，不会被二次转义。
+ * 兼容：`<html>` / `<style>` / `<script>` 三个裸标签是旧写法，仍然可用，但**只建议改旧代码时
+ * 保留**；新代码请用上面的 `Markup` / `css` / `script`。旧标签产出的片段对象形状不变
+ * （`{ __coconut: 'html' | 'css' | 'script', text }`），引擎和类型都认。
  */
 
 export type CoconutChunkKind = 'script' | 'html' | 'css';
 
+/** 引擎认识的片段：`html` 给浮层、`css` 给浮层样式、`script` 给 runJs。 */
 export interface CoconutChunk<K extends CoconutChunkKind = CoconutChunkKind> {
   readonly __coconut: K;
   readonly text: string;
   toString(): string;
 }
 
-/** 已经拼好的 HTML 片段：在 JSX 里原样插入，不转义。 */
+/** 已经拼好的 HTML：在 JSX 里原样插入，不二次转义。 */
 export class Markup implements CoconutChunk<'html'> {
   readonly __coconut = 'html' as const;
   readonly text: string;
@@ -56,22 +61,61 @@ class Chunk<K extends CoconutChunkKind> implements CoconutChunk<K> {
   }
 }
 
-/** 把现成 HTML 标记成「原样插入」（`<html>{raw(rowsHtml)}</html>`）。 */
+/** 把值当文本取出来（片段取 `text`，其它 `String()`）。 */
+export function textOf(value: unknown): string {
+  if (value && typeof value === 'object') {
+    const kind = (value as { __coconut?: unknown }).__coconut;
+    if (kind === 'script' || kind === 'html' || kind === 'css') {
+      return String((value as CoconutChunk).text);
+    }
+  }
+  return value === null || value === undefined ? '' : String(value);
+}
+
+/** 把现成 HTML 标记成「原样插入」（`<div>{raw(rowsHtml)}</div>`）。 */
 export function raw(value: unknown): Markup {
-  return new Markup(value === null || value === undefined ? '' : String(value));
+  return new Markup(textOf(value));
 }
 
-/** 显式构造片段（不想写 JSX 时用）。 */
-export function script(text: unknown): CoconutChunk<'script'> {
-  return new Chunk('script', String(text ?? ''));
+type TemplateStrings = TemplateStringsArray | readonly string[];
+
+function isTemplate(value: unknown): value is TemplateStringsArray {
+  return Array.isArray(value) && Object.prototype.hasOwnProperty.call(value, 'raw');
 }
 
-export function html(text: unknown): Markup {
-  return new Markup(String(text ?? ''));
+/**
+ * `css` / `script` / `html` 都支持两种调用：
+ *   - 标签模板：`css\`.a { color: ${color} }\``（插值原样拼，不转义）
+ *   - 普通字符串：`css('.a { color: #fff }')`
+ */
+function joinText(first: unknown, values: readonly unknown[]): string {
+  if (!isTemplate(first)) return textOf(first);
+  let out = String(first[0] ?? '');
+  for (let index = 0; index < values.length; index++) {
+    out += textOf(values[index]) + String(first[index + 1] ?? '');
+  }
+  return out;
 }
 
-export function css(text: unknown): CoconutChunk<'css'> {
-  return new Chunk('css', String(text ?? ''));
+/** 浮层 CSS 片段（标签模板或普通字符串）。 */
+export function css(strings: TemplateStrings, ...values: unknown[]): CoconutChunk<'css'>;
+export function css(text: unknown): CoconutChunk<'css'>;
+export function css(first: unknown, ...values: unknown[]): CoconutChunk<'css'> {
+  return new Chunk('css', joinText(first, values));
+}
+
+/** 页面脚本片段（`runJs` 的函数体，要自己 `return`）。 */
+export function script(strings: TemplateStrings, ...values: unknown[]): CoconutChunk<'script'>;
+export function script(text: unknown): CoconutChunk<'script'>;
+export function script(first: unknown, ...values: unknown[]): CoconutChunk<'script'> {
+  return new Chunk('script', joinText(first, values));
+}
+
+/** 现成 HTML（标签模板或普通字符串）：原样插入，不转义。 */
+export function html(strings: TemplateStrings, ...values: unknown[]): Markup;
+export function html(text: unknown): Markup;
+export function html(first: unknown, ...values: unknown[]): Markup {
+  return new Markup(joinText(first, values));
 }
 
 /** Fragment：`<>…</>` 只能装 HTML 内容，混 `<script>` / `<style>` 会直接报错。 */
@@ -171,8 +215,8 @@ function flatten(children: unknown[], escape: boolean): string {
 /**
  * JSX 工厂（esbuild / Deno 都配成 `h`）。
  *
- * 普通标签返回 {@link Markup}（可以直接再嵌回 JSX、也能当字符串用）；
- * 三种裸标签返回对应 kind 的片段。
+ * 普通标签返回 {@link Markup}；`<html>` / `<style>` / `<script>` 是兼容旧写法的裸标签，
+ * 分别返回 html / css / script 片段。
  */
 export function h(tag: unknown, props: Props, ...children: unknown[]): CoconutChunk | Markup {
   if (tag === Fragment) {
@@ -180,21 +224,15 @@ export function h(tag: unknown, props: Props, ...children: unknown[]): CoconutCh
     if (kinds.has('script') || kinds.has('css')) {
       throw new TypeError('Fragment 里不能混 <script> / <style>：请分开传给 runJs / overlay');
     }
-    return html(flatten(children, true));
+    return new Markup(flatten(children, true));
   }
 
   const name = String(tag);
-  if (name === 'script') return script(flatten(children, false));
-  if (name === 'style') return css(flatten(children, false));
-  if (name === 'html') return html(flatten(children, true));
+  const inner = [...children, ...(props && 'children' in props ? [props.children] : [])];
+  if (name === 'html') return new Markup(flatten(inner, true));
+  if (name === 'style') return new Chunk('css', flatten(inner, false));
+  if (name === 'script') return new Chunk('script', flatten(inner, false));
 
   if (VOID_TAGS.has(name)) return new Markup(`<${name}${attrsOf(props)} />`);
-  const inner = [...children, ...(props && 'children' in props ? [props.children] : [])];
   return new Markup(`<${name}${attrsOf(props)}>${flatten(inner, true)}</${name}>`);
-}
-
-/** 把任意值当文本取出来（片段取 text，其它 String()）。 */
-export function textOf(value: unknown): string {
-  if (chunkKindOf(value)) return String((value as CoconutChunk).text);
-  return value === null || value === undefined ? '' : String(value);
 }

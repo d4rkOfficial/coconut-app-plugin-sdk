@@ -275,13 +275,15 @@ async function onEvent(event) {
 | 钩子             | 时机                                    | 参数                                   |
 | ---------------- | --------------------------------------- | -------------------------------------- |
 | `onStart()`      | 插件线程起来（页面可能还没打开）        | 无                                     |
-| `onHello(info)`  | 工具箱页面就绪（**每个会话一次**）      | `{ session: string, tools: string[] }` |
+| `onHello(info)`  | 工具箱页面就绪（**每个会话一次**）      | `{ session: string, tools: Array<string \| 工具定义> }` |
 | `onEvent(event)` | `resync`；有 `debug` 权限时还有 `frame` | `CoconutEvent`                         |
 | `onBye(info)`    | 页面会话结束（关闭 / 重载 / 回启动器）  | `{ session?: string }`                 |
 | `onStop()`       | 停用 / 重载 / 退出                      | 无                                     |
 
 - 五个钩子都可以是 `async function`，`await` 宿主 API 没问题；
-- **单个钩子超过 10 秒**会被 QuickJS 中断，记一次错误；
+- 也可以**不写全局钩子**，改用 `Coconut.addEventListener('hello', fn)` 注册（推荐）：
+  两者等价、会一起执行；监听器可以叠加多个，用 `removeEventListener` 摘掉，也不用挂 `globalThis`；
+- **单个回调超过 10 秒**会被 QuickJS 中断，记一次错误；
 - **连续 3 次抛错自动停用**，插件卡片标红并显示最后一次错误，用户点「启用」恢复；
 - `onHello` 由引擎按 `session` 去重：4 秒重发、`last_hello` 重放都不会重复触发；
   页面重载是新会话，会正常再来一次。清理逻辑优先写 `onBye`；
@@ -307,8 +309,8 @@ const count = Coconut.toolbox.runJs(
   '.card',
 );
 
-// 3) JSX 片段
-Coconut.toolbox.runJs(<script>{`document.body.dataset.ready = '1'`}</script>);
+// 3) 页面脚本片段（script 标签模板，内容是函数体）
+Coconut.toolbox.runJs(script`document.body.dataset.ready = '1'`);
 ```
 
 - 函数必须**自包含**：闭包变量在页面里不存在，数据走参数；
@@ -498,7 +500,7 @@ ws.addEventListener('close', (event) => Coconut.log('关闭', event.code));
 
 ### `Coconut.addEventListener`（生命周期，无需权限）
 
-`Coconut` 本身是事件对象，四个生命周期事件与全局钩子等价：
+`Coconut` 本身是事件对象，五个生命周期事件与全局钩子等价：
 
 ```js
 Coconut.addEventListener('hello', async () => { ... });
@@ -506,8 +508,17 @@ Coconut.addEventListener('event', (event) => { ... });
 Coconut.removeEventListener('hello', handler);
 ```
 
-事件名：`start` / `hello` / `event` / `stop`。监听器可以是 async；同一个事件可以叠加多个， 全局
-`onHello` 等钩子仍然可用，两者会一起执行。
+事件名：`start` / `hello` / `event` / `bye` / `stop`。监听器可以是 async；同一个事件可以叠加多个，
+全局 `onHello` 等钩子仍然可用，两者会一起执行。
+
+**监听器的参数是事件对象**，hello 的数据在 `event.detail` 里（全局钩子 `onHello(info)` 则直接拿
+info）：
+
+```js
+Coconut.addEventListener('hello', (event) => {
+  const { session, tools } = event.detail;
+});
+```
 
 ### `Coconut.log(...args)` / `console.*`
 
@@ -584,7 +595,10 @@ Coconut.ui.overlay({
 ## 8. 类型检查（可选但建议）
 
 类型声明**不再随启动器释放**，在仓库的 `plugin-api/` 里（`coconut-plugin.d.ts` + `tools.d.ts` +
-`deno.json`）。要用的话把整个目录拷到插件旁边，然后（Deno 2）：
+`deno.json`）。`deno task new` 生成的 `dev/<id>/deno.json` 已经把这些类型和 JSX 配置接好，
+编辑器（Deno 扩展）会直接补全 `Coconut.*` / `Coconut.tools.call` 的工具名与入参。
+
+插件放在本仓库外时，把 `plugin-api/` 拷到插件旁边，然后（Deno 2）：
 
 ```text
 deno check --config plugin-api/deno.json my-plugin.js
@@ -601,7 +615,7 @@ deno check --config plugin-api/deno.json my-plugin.js
 | 症状                                      | 原因 / 解决                                                                                   |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------- |
 | 插件「加载失败」                          | 语法错误，或文件带 BOM 且第一行注释被顶掉；先过 `deno check`                                  |
-| 钩子完全没被调用                          | 写成了 `const onHello = ...`，必须 `async function onHello() {}`                              |
+| 生命周期完全没被调用                      | 写成 `const onHello = ...`（必须 `async function onHello() {}` 或 `Coconut.addEventListener`），或事件名拼错 |
 | `Coconut.runJs` 返回 `"null"`             | 代码里没有 `return`；也别忘了它返回的是字符串                                                 |
 | 报「工具箱页面还没打开」                  | 在 `onStart` 里就 `runJs` 了；挪到 `onHello` 或按示例 5 重试                                  |
 | 连续 3 次报错被停用                       | 钩子抛异常；卡片上看最后一次错误，修完点「启用」                                              |

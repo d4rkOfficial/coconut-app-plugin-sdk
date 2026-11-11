@@ -1,6 +1,10 @@
 # 打包产物（deno task build 生成）
 dist/
 
+# 用户自己的插件项目（deno task new 生成；examples/ 才是官方示例）
+dev/*
+!dev/.gitkeep
+
 # Deno 老式 node_modules（本项目不需要）
 node_modules/
 

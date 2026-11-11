@@ -20,59 +20,67 @@
 | #  | 规则                                                                                                                      | 为什么                                                                   |
 | -- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | 1  | 产物必须**单文件**；运行时没有 `import` / `export` / `require`                                                            | QuickJS 无模块系统。源码可以随便 `import`，`deno task build` 会内联      |
-| 2  | 钩子必须写成 `async function onHello() {}` 这种**函数声明**                                                               | `const onHello = …` 会让宿主找不到钩子                                   |
-| 3  | 入口文件末尾必须把钩子**挂到 `globalThis`**                                                                               | 打包成 IIFE 后函数声明不在全局作用域，宿主只在 `globalThis` 上找         |
+| 2  | 生命周期用 `Coconut.addEventListener('hello', fn)` 注册（推荐），或写成 `async function onHello() {}` **函数声明** | `const onHello = …` 会让宿主找不到；监听器写法不用挂全局 |
+| 3  | 用全局钩子时，入口末尾必须把钩子**挂到 `globalThis`**                                                              | 打包成 IIFE 后函数声明不在全局作用域，宿主只在 `globalThis` 上找 |
 | 4  | 文件开头保留 `// @name …` 头部（UTF-8 **无 BOM**）                                                                        | `minify` 删注释，构建脚本靠它贴回 banner；带 BOM 首行注释会读丢          |
 | 5  | 只用 ES2020；没有 `fetch` / `URL` / `TextEncoder` / `atob` / `btoa` / `crypto` / `structuredClone` / `process` / `Buffer` | 运行时只有 ES2020 标准库子集 + `Coconut`                                 |
 | 6  | 用了哪个能力就申请哪个权限（Rust 侧硬校验，直接抛错）                                                                     | 见第 4 节权限表                                                          |
 | 7  | 单个钩子 **10 秒**上限；连续 **3 次抛错**自动停用                                                                         | 别忙等、别在钩子里跑重活；异常自己 `try/catch` 并写日志                  |
 | 8  | `onHello` 每次页面就绪都会触发（刷新 / WS 重连），**必须可重复执行**                                                      | 别在里面做不可重入的事（重复注册、重复写配置）                           |
 | 9  | `onStart` 里**不能** `runJs` / 画浮层                                                                                     | 那时工具箱页面可能还没打开                                               |
-| 10 | 插件目录里**文件名 = 插件 id**；示例目录名必须等于产物 id                                                                 | 卡片名、存储文件名、`state.json` 键都跟着它                              |
-| 11 | 注入页面的代码写成普通函数放 `page/*.dom.js`，**完全自包含**，直接用 `Coconut.toolbox.runJs(fn, ...args)` 调用            | 只有函数本体被序列化进页面，模块作用域（import、顶层常量）在页面里不存在 |
+| 10 | 插件目录里**文件名 = 插件 id**；用户项目放 `dev/<id>/`，`examples/` 只放官方示例                                          | 卡片名、存储文件名、`state.json` 键都跟着它                              |
+| 11 | 注入页面的代码写成普通函数放 `page/*.dom.js` / `*.dom.ts`，**完全自包含**，直接用 `Coconut.toolbox.runJs(fn, ...args)` 调用 | 只有函数本体被序列化进页面，模块作用域（import、顶层常量）在页面里不存在 |
 
 ## 2. 目录与命令
 
 ```text
-examples/<id>/index.js    ← 入口：头部元数据 + 钩子 + 装配（保持短）
-examples/<id>/*.js        ← 按功能拆的模块（state / api / render / sync / …）
-examples/<id>/*.jsx       ← 浮层与页面片段（JSX：<script> / <html> / <style>，见第 6 节）
-examples/<id>/page/*.dom.js ← 注入页面的自包含函数（直接传给 Coconut.toolbox.runJs）
-templates/plugin/index.js   ← `deno task new` 用的骨架
-plugin-api/*.d.ts           ← API 类型（本仓库为准；tools.d.ts 只由 deno task tools 生成）
-docs/plugin-api.md          ← API 规范原文
-scripts/*.ts                ← build / dev / deploy / pull / new / check / test / clean
-dist/<id>.js                ← 产物（gitignored）
+dev/<id>/index.js         ← 用户项目入口：头部元数据 + 生命周期 + 装配（`.ts` / `.jsx` / `.tsx` 也行）
+dev/<id>/test.js          ← 用户测试入口（`deno task test` 跑；模板自带）
+dev/<id>/*.js             ← 按功能拆的模块（state / api / render / sync / …）
+dev/<id>/*.jsx            ← 浮层 HTML + css / script 标签模板（见第 6 节）
+dev/<id>/page/*.dom.js    ← 注入页面的自包含函数（TypeScript 可用 `.dom.ts`）
+examples/<id>/            ← 官方示例（只读参考，build/check/test:examples 也会跑）
+templates/plugin/         ← `deno task new` 用的骨架（index.js / overlay.jsx / test.js / deno.json）
+tests/harness.ts          ← 测试沙箱：假 DOM + 假 Coconut + loadPlugin + 断言
+tests/examples.test.ts    ← 官方示例回归测试（deno task test:examples）
+plugin-api/*.d.ts         ← API 类型（本仓库为准；tools.d.ts 只由 deno task tools 生成）
+docs/plugin-api.md        ← API 规范原文
+scripts/*.ts              ← build / dev / deploy / pull / new / check / test / clean
+dist/<id>.js              ← 产物（gitignored）
 ```
 
-| 命令                    | 用途                                                                               |
-| ----------------------- | ---------------------------------------------------------------------------------- |
-| `deno task new <id>`    | 从模板新建插件（`--name` / `--permissions` 可选）                                  |
-| `deno task check`       | 静态自查：头部 / 权限 / 钩子 / 禁用宿主 API / **`.dom.js` 自包含**（**改完必跑**） |
-| `deno task build`       | 打包全部 → `dist/`（压缩）；`deno task build <id>` 只打一个                        |
-| `deno task build:plain` | 不压缩产物（看堆栈 / 排查）                                                        |
-| `deno task dev <id>`    | 监听 + 打包 + **部署到启动器**（热重载；会覆盖同名插件）                           |
-| `deno task deploy <id>` | 一次性安装 `dist/<id>.js`（`--dry` 只打印）                                        |
-| `deno task pull <id>`   | 把启动器里已安装的插件拉回 `examples/<id>`                                         |
-| `deno task test`        | 冒烟测试：假宿主 + 假页面跑打包产物（改了页面脚本/钩子就值得跑）                   |
-| `deno task typecheck`   | `deno check`（示例 / 模板 / 脚本）                                                 |
-| `deno task verify`      | fmt 检查 + lint + 自查 + 类型 + 打包 + 测试（提交前一把梭）                        |
+| 命令                     | 用途                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| `deno task new <id>`     | 从模板新建插件到 `dev/<id>/`（`--name` / `--permissions` 可选）                     |
+| `deno task check`        | 静态自查：头部 / 权限 / 生命周期 / 禁用宿主 API / **`.dom.js` 自包含**（**改完必跑**） |
+| `deno task build`        | 打包全部（dev + examples）→ `dist/`（压缩）；`deno task build <id>` 只打一个         |
+| `deno task build:plain`  | 不压缩产物（看堆栈 / 排查）                                                         |
+| `deno task dev <id>`     | 监听 + 打包 + **部署到启动器**（热重载；会覆盖同名插件）                            |
+| `deno task deploy <id>`  | 一次性安装 `dist/<id>.js`（`--dry` 只打印）                                         |
+| `deno task pull <id>`    | 把启动器里已安装的插件拉回 `dev/<id>`                                               |
+| `deno task test`         | 跑 `dev/<id>/test.js`（先自动打包；没有 test.js 就跳过）                            |
+| `deno task test:examples`| 官方示例的回归测试（**不是**用户测试）                                              |
+| `deno task typecheck`    | `deno check`（示例 / 模板 / 脚本 / 测试）                                           |
+| `deno task verify`       | fmt 检查 + lint + 自查 + 类型 + 打包 + 示例测试 + 用户测试（提交前一把梭）          |
 
 插件目录默认 `%APPDATA%\com.coconut.launcher\plugins`，可用 `--dir <目录>` 或 `COCONUT_PLUGINS_DIR`
 覆盖。
 
 ## 3. 模块划分约定
 
-- **入口 `index.js`**：头部元数据 + 钩子（`onStart/onHello/onEvent/onBye/onStop`）+ 把模块装配起来。
+- **入口 `index.js`**：头部元数据 + 生命周期（`Coconut.addEventListener('start'|'hello'|'event'|'bye'|'stop', fn)`，
+  或全局钩子 `onStart/onHello/onEvent/onBye/onStop`）+ 把模块装配起来。
   主循环、调度这类「流程」可以留在入口，但不要往里堆算法和渲染。
 - **状态**：放一个 `state.js`，导出**一个可变对象**（`export const st = { … }`）。 ES 模块的
   `export let` 在别的模块里不能赋值，所以统一改 `st.xxx`。
 - **纯逻辑**（快照、几何、配置空间、渲染字符串）单独成文件，不碰 `Coconut`，方便测。
 - **宿主调用**统一收敛到一个 `api.js`（工具调用封装、预算、日志），别到处散 `Coconut.tools.call`。
-- **页面脚本**：`page/<作用>.dom.js`，一文件一个功能函数，**直接传**给 `Coconut.toolbox.runJs`；
-  不再需要 `pageCall` / `page/run.js`。`.dom.js` 里 **不要 `import`、不要顶层 `const/let/var`**
-  ——把数据用参数传进去。
-- **浮层/页面片段**：优先写成 `.jsx`，用 `<html>` / `<style>` / `<script>` 三个裸标签（见第 6 节）。
+- **页面脚本**：`page/<作用>.dom.js`（TypeScript 可写 `.dom.ts`），一文件一个功能函数，**直接传**给
+  `Coconut.toolbox.runJs`；不再需要 `pageCall` / `page/run.js`。页面脚本里 **不要 `import`、
+  不要顶层 `const/let/var`**——把数据用参数传进去。
+- **浮层/页面片段**：优先写成 `.jsx`：JSX 只写 HTML（顶层标签直接是片段），CSS / 页面脚本用
+  `css` / `script` 标签模板（见第 6 节）。
+- **测试**：`dev/<id>/test.js` 用 `tests/harness.ts` 的假宿主跑（见第 2 节命令）。
 - 命名与注释用中文，跟现有示例保持一致；每个文件顶部一句话说明职责。
 
 ## 4. 权限
@@ -91,7 +99,8 @@ dist/<id>.js                ← 产物（gitignored）
 声明了权限」，报错就补 `@permissions`。
 
 `Coconut` 本身是事件对象：`Coconut.addEventListener('start'|'hello'|'event'|'bye'|'stop', fn)`
-与五个全局钩子等价，可叠加、可 `removeEventListener`。`Coconut.http.createServer()` /
+与五个全局钩子等价，可叠加、可 `removeEventListener`。**监听器拿到的是事件对象，数据在
+`event.detail`**（全局钩子 `onHello(info)` 才直接拿 info）。`Coconut.http.createServer()` /
 `Coconut.webSocket(url)` / `Coconut.tools` 返回的也都是同一种事件对象。
 
 **废弃**：`Coconut.runJs`、`Coconut.callTool` 仍可运行（第一次调用会 `console.warn`），但类型声明
@@ -121,27 +130,27 @@ dist/<id>.js                ← 产物（gitignored）
 浮层要点：容器铺满视口且 **`pointer-events: none`**（要点击的元素自己写 `auto`）； **z-index
 由引擎编排**（后注册的盖住先注册的），插件不能也不该指定层级。
 
-## 6. JSX 片段（`<script>` / `<html>` / `<style>`）
+## 6. JSX（`.jsx` / `.tsx`）
 
-`.jsx` / `.tsx` 里可以写**裸标签**，Deno 与 esbuild 都配好了 `jsxFactory: 'h'`，三个标签分别产出
-引擎认识的片段对象：
+**一个标签只干一件事**：JSX 只写 HTML，CSS / 页面脚本用标签模板。任意 JSX 表达式（顶层 `<div>`
+即可，不用包 `<html>`）产出 `Markup`，直接给 `ui.overlay({ html })`：
 
 ```jsx
-import { Fragment, h } from '../../plugin-api/jsx.ts';
+import { css, h, script } from '../../plugin-api/jsx.ts'; // h 是 JSX 工厂，必须导入
 
-const view = (
-  <html>
-    <div class='card'>{title}</div>
-  </html>
-); // → Coconut.ui.overlay({ html: view })
-const skin = <style>{`.card { color: #fff }`}</style>; // → Coconut.ui.overlay({ css: skin })
-const boot = <script>{`document.body.dataset.ready = '1'`}</script>; // → Coconut.toolbox.runJs(boot)
+const view = <div class='card'>{title}</div>; // → Coconut.ui.overlay({ html: view })
+const skin = css`.card { color: #fff }`; // → Coconut.ui.overlay({ css: skin })
+const boot = script`document.body.dataset.ready = '1'`; // → Coconut.toolbox.runJs(boot)
 ```
 
-- `<script>` 里是**函数体**（要自己 `return`），和 `runJs` 的字符串形式一样；
-- `<html>` / `<style>` 的子节点按**原文**取，不转义；其它标签渲染成转义过的 HTML 字符串；
+- `css` / `script` 的内容**原样取**，不转义（`script` 里是函数体，要自己 `return`）；
+- JSX 的文本子节点 / `{}` 插值会自动转义 `< > &`；嵌套片段不会二次转义；
+- 插入现成 HTML 用 `html` 标签模板或 `raw()`；
 - 片段对象是 `{ __coconut: 'script'|'html'|'css', text }`，`String(chunk)` 也能拿到文本；
-- 文件扩展名用 `.jsx` / `.tsx`（`.js` 里写 JSX 会按普通 JS 解析而报错）。
+- 兼容旧写法 `<html>` / `<style>` / `<script>`（行为不变），但新代码别再用了；
+- 文件扩展名用 `.jsx` / `.tsx`（`.js` 里写 JSX 会按普通 JS 解析而报错）；
+- 类型补全：模板 `templates/plugin/deno.json` 已接好 `plugin-api` 类型与 `jsxFactory`，
+  `deno task new` 会把它复制到 `dev/<id>/deno.json`。
 
 ## 7. `tools.d.ts`：工具名与入参类型
 
@@ -188,20 +197,21 @@ const data = await Coconut.toolbox.runJs(applyScramble, charPool); // 参数会 
   错误次数和最后一次错误直接显示在行内（删文件请自己进插件目录）。
 - **状态文件**：`plugins/state.json`（启用状态）、`plugins/storage/<id>.json`（插件存储）。
 - **启动器 panic**：`%APPDATA%\com.coconut.launcher\panic.log`。
-- 改完先 `deno task check`，再 `deno task build`（`build:plain` 排错），再 `deno task test`。
+- 改完先 `deno task check`，再 `deno task build`（`build:plain` 排错），再 `deno task test <id>`
+  （官方示例是 `deno task test:examples`）。
 
 ## 10. 常见坑
 
 | 症状                                      | 原因 / 处理                                                         |
 | ----------------------------------------- | ------------------------------------------------------------------- |
 | 插件「加载失败」                          | 语法错误、带 BOM、头部被顶掉 → `deno task check <id>`               |
-| 钩子完全没被调用                          | 写成 `const onHello = …`，或产物里没挂 `globalThis.onHello`         |
-| 打包后不执行但源码没事                    | 忘了 `globalThis.onX = onX`（IIFE 作用域）                          |
+| 生命周期完全没被调用                      | 写成 `const onHello = …`、忘了挂 `globalThis`，或监听器事件名拼错（`start/hello/event/bye/stop`）→ `deno task check <id>` |
+| 打包后不执行但源码没事                    | 用了全局钩子却忘了 `globalThis.onX = onX`（IIFE 作用域）            |
 | `runJs` 返回 `"null"`                     | 代码里没有 `return`；它永远返回字符串，对象要自己 `JSON.stringify`  |
 | 报「工具箱页面还没打开」                  | 在 `onStart` 里 `runJs` 了；挪到 `onHello` 或轮询重试               |
 | 页面脚本报 `x is not defined`             | `.dom.js` 引用了模块作用域变量/忘了传参 → 改成参数传入              |
-| 连续 3 次报错被停用                       | 钩子抛异常；卡片上看最后一次错误，修完点「启用」                    |
-| 钩子「超过 10s 未返回」                   | 死循环 / 等不会完成的 Promise；用定时器别忙等                       |
+| 连续 3 次报错被停用                       | 生命周期回调抛异常；卡片上看最后一次错误，修完点「启用」            |
+| 回调「超过 10s 未返回」                   | 死循环 / 等不会完成的 Promise；用定时器别忙等                       |
 | `Coconut.log(obj)` 打出 `[object Object]` | 用 `Coconut.log(JSON.stringify(obj))`，或 `console.log`（只进终端） |
 | 浮层里的按钮点了没反应                    | 浮层默认 `pointer-events: none`，交互元素加 `auto`                  |
 | 改了文件没生效                            | 启动器 3 秒扫描；也可以点「重载」/「重新扫描」                      |
@@ -209,10 +219,10 @@ const data = await Coconut.toolbox.runJs(applyScramble, charPool); // 参数会 
 ## 11. 完成前自检（必须全过）
 
 ```powershell
-deno task check:strict      # 头部/权限/钩子/禁用 API/.dom.js 自包含，零错误零提示
+deno task check:strict      # 头部/权限/生命周期/禁用 API/.dom.js 自包含，零错误零提示
 deno task build <id>        # 产物能打出来（默认压缩）
-deno task test              # 假宿主冒烟测试
-deno task verify            # 或者一把梭：fmt + lint + check + typecheck + build + test
+deno task test <id>         # dev/<id>/test.js（假宿主）；示例用 deno task test:examples
+deno task verify            # 或者一把梭：fmt + lint + check + typecheck + build + test:examples + test
 ```
 
 外加人工确认：
@@ -229,7 +239,7 @@ deno task verify            # 或者一把梭：fmt + lint + check + typecheck +
 - `plugin-api/` 与 `docs/plugin-api.md` 已由本仓库维护（启动器 `main` 不再带这个目录）；
   `tools.d.ts` 只跑 `deno task tools` 重新生成，别手改。
 - 不要「顺手重构」示例的行为——它们是用户正在用的插件，改动要有明确需求；
-  纯拆分/搬文件时必须保证行为等价，并用 `deno task test` 验证。
+  纯拆分/搬文件时必须保证行为等价，并用 `deno task test:examples` 验证。
 - 不要引入运行时依赖（QuickJS 里没有 Node 环境）；esbuild 只作为构建期依赖。
 - 保持 `@mount` 与实际一致（用浮层写 `overlay`），文件行尾 LF、UTF-8 无 BOM。
 - `dist/` 不入库；提交前确认 `git status` 里没有产物和 `node_modules`。
@@ -243,5 +253,6 @@ deno task verify            # 或者一把梭：fmt + lint + check + typecheck +
 | 工具箱工具的参数类型               | [`plugin-api/tools.d.ts`](plugin-api/tools.d.ts)                   |
 | 打包细节（IIFE / banner / 压缩）   | [`scripts/build.ts`](scripts/build.ts)                             |
 | 自查规则（含 `.dom.js` 沙箱检查）  | [`scripts/check.ts`](scripts/check.ts)                             |
-| 冒烟测试怎么造假宿主               | [`scripts/test.ts`](scripts/test.ts)                               |
+| 测试沙箱（假宿主 / 假页面 / 断言） | [`tests/harness.ts`](tests/harness.ts)                             |
+| 官方示例回归测试                   | [`tests/examples.test.ts`](tests/examples.test.ts)                 |
 | 现成的真实插件写法                 | `examples/*/index.js` 与 `examples/*/page/`                        |

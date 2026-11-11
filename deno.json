@@ -1,52 +1,53 @@
 {
-  "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "deno.ns"],
-    "strict": true,
-    "noImplicitAny": false,
-    "jsx": "react",
-    "jsxFactory": "h",
-    "jsxFragmentFactory": "Fragment",
-    "types": ["./plugin-api/coconut-plugin.d.ts", "./plugin-api/tools.d.ts"]
-  },
-  "imports": {
-    "@std/path": "jsr:@std/path@^1.0.8"
-  },
-  "exclude": ["dist", "node_modules"],
-  "fmt": {
-    "lineWidth": 100,
-    "indentWidth": 2,
-    "singleQuote": true,
-    "semiColons": true,
-    "exclude": ["plugin-api"]
-  },
-  "lint": {
-    "rules": {
-      "tags": ["recommended"],
-      "exclude": [
-        "no-explicit-any",
-        "no-unused-vars",
-        "require-await",
-        "no-empty",
-        "jsx-key"
-      ]
+    "compilerOptions": {
+        "lib": ["dom", "dom.iterable", "deno.ns"],
+        "strict": true,
+        "noImplicitAny": false,
+        "jsx": "react",
+        "jsxFactory": "h",
+        "jsxFragmentFactory": "Fragment",
+        "types": ["./plugin-api/coconut-plugin.d.ts", "./plugin-api/tools.d.ts"]
     },
-    "exclude": ["plugin-api"]
-  },
-  "tasks": {
-    "check": "deno run -A scripts/check.ts",
-    "check:strict": "deno run -A scripts/check.ts --strict",
-    "build": "deno run -A scripts/build.ts",
-    "build:plain": "deno run -A scripts/build.ts --no-minify",
-    "dev": "deno run -A scripts/dev.ts",
-    "deploy": "deno run -A scripts/deploy.ts",
-    "pull": "deno run -A scripts/pull.ts",
-    "new": "deno run -A scripts/new.ts",
-    "clean": "deno run -A scripts/clean.ts",
-    "test": "deno run -A scripts/test.ts",
-    "tools": "deno run -A plugin-api/generate-tools.ts",
-    "typecheck": "deno check examples templates scripts",
-    "fmt": "deno fmt",
-    "lint": "deno lint",
-    "verify": "deno fmt --check && deno lint && deno task check:strict && deno task typecheck && deno task build && deno task test"
-  }
+    "imports": {
+        "@std/path": "jsr:@std/path@^1.0.8"
+    },
+    "exclude": ["dist", "node_modules"],
+    "fmt": {
+        "lineWidth": 100,
+        "indentWidth": 4,
+        "singleQuote": true,
+        "semiColons": false,
+        "exclude": ["plugin-api"]
+    },
+    "lint": {
+        "rules": {
+            "tags": ["recommended"],
+            "exclude": [
+                "no-explicit-any",
+                "no-unused-vars",
+                "require-await",
+                "no-empty",
+                "jsx-key"
+            ]
+        },
+        "exclude": ["plugin-api"]
+    },
+    "tasks": {
+        "check": "deno run -A scripts/check.ts",
+        "check:strict": "deno run -A scripts/check.ts --strict",
+        "build": "deno run -A scripts/build.ts",
+        "build:plain": "deno run -A scripts/build.ts --no-minify",
+        "dev": "deno run -A scripts/dev.ts",
+        "deploy": "deno run -A scripts/deploy.ts",
+        "pull": "deno run -A scripts/pull.ts",
+        "new": "deno run -A scripts/new.ts",
+        "clean": "deno run -A scripts/clean.ts",
+        "test": "deno run -A scripts/test.ts",
+        "test:examples": "deno run -A tests/examples.test.ts",
+        "tools": "deno run -A plugin-api/generate-tools.ts",
+        "typecheck": "deno check examples templates scripts tests",
+        "fmt": "deno fmt",
+        "lint": "deno lint",
+        "verify": "deno fmt --check && deno lint && deno task check:strict && deno task typecheck && deno task build && deno task test:examples && deno task test"
+    }
 }

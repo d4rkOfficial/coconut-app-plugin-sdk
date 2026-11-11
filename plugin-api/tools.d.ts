@@ -1,5 +1,5 @@
 // 由 plugin-api/generate-tools.ts 自动生成，请勿手改。
-// 工具箱包体：version 1793813983076（2026-11-04 生成）
+// 工具箱包体：version 1794376428696（2026-11-11 生成）
 // 工具箱更新后重新跑：deno task tools
 
 /** 每个 WS 工具的入参（来自工具箱自己的 JSON Schema）。 */
@@ -25,7 +25,7 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 在当前排轴指定轨道（1-3）追加一个操作块，位置为三行最右空白位置（按顺序排轴：新块总是落在所有操作块之后）。key 支持：普攻/重击/闪避/跳跃/共鸣技能/共鸣解放/声骸技能/谐度破坏，或 Q/E/R/F/T 等字母。desc 为描述文本（如“变奏入场”）。返回新块的**序号**（时间轴上的第几个操作块）。
+   * 在当前排轴指定轨道（1-3）追加一个操作块，位置为三行最右空白位置（按顺序排轴：新块总是落在所有操作块之后）。key 支持：普攻/重击/闪避/跳跃/共鸣技能/共鸣解放/声骸技能/谐度破坏，或 Q/E/R/F/T 等字母。desc 为描述文本（如“变奏入场”）。返回新块的**短索引**（后续操作用它定位，永不改变）。
    */
   add_op_block: {
     /** 轨道 1-3 */
@@ -37,7 +37,7 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 在当前排轴最右空白位置添加参考线（按顺序排轴：参考线落在所有操作块之后），用于标记时间节点（如启动轴/循环轴）。返回新参考线的**序号**。
+   * 在当前排轴最右空白位置添加参考线（按顺序排轴：参考线落在所有操作块之后），用于标记时间节点（如启动轴/循环轴）。返回新参考线的**短索引**（后续操作用它定位，永不改变）。
    */
   add_ref_line: Record<string, never>;
 
@@ -91,8 +91,8 @@ export interface CoconutToolParams {
   bind_damage_to_block: {
     /** 目标类型：block=操作块（默认）/ refLine=参考线 */
     targetType?: "block" | "refLine";
-    /** 目标**序号**（targetType=block 时为操作块序号，refLine 时为参考线序号） */
-    block: number;
+    /** 目标**短索引**（5 位 token，targetType=block 时取操作块、refLine 时取参考线） */
+    block: string;
     /** 要绑定到该操作块的伤害条目列表 */
     hits: {
       /** 伤害来源角色名 */
@@ -110,8 +110,8 @@ export interface CoconutToolParams {
   bind_non_direct_to_block: {
     /** 目标类型：block=操作块（默认）/ refLine=参考线 */
     targetType?: "block" | "refLine";
-    /** 目标序号（操作块或参考线） */
-    block: number;
+    /** 目标短索引（操作块或参考线，取值见 get_timeline_summary） */
+    block: string;
     /** 非直伤条目列表（整体覆盖该块）：处决/响应/效应 */
     entries: {
       /** 条目名（用 get_non_direct_options 查询） */
@@ -269,11 +269,11 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 禁用某条参考线的时间记点（按**序号**，从 timings 移除，不再参与 DPS 分段）。若该参考线未启用则幂等返回。
+   * 禁用某条参考线的时间记点（按**短索引**，从 timings 移除，不再参与 DPS 分段）。若该参考线未启用则幂等返回。
    */
   disable_ref_line_timing: {
-    /** 参考线序号 */
-    line: number;
+    /** 参考线短索引 */
+    line: string;
   };
 
   /**
@@ -287,11 +287,11 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 启用某条参考线作为时间记点（按**序号**）。启用时秒数自动推导：按参考线命名解析时间片段（如 "1m30s"→90、"起手"→null 未解析）；结束线（最后一条）默认 120s。若该参考线已启用则幂等返回当前状态。
+   * 启用某条参考线作为时间记点（按**短索引**）。启用时秒数自动推导：按参考线命名解析时间片段（如 "1m30s"→90、"起手"→null 未解析）；结束线（最后一条）默认 120s。若该参考线已启用则幂等返回当前状态。
    */
   enable_ref_line_timing: {
-    /** 参考线序号（见 get_timeline_summary 的「[线N]」） */
-    line: number;
+    /** 参考线短索引（见 get_timeline_summary 的「[线 xxxx]」） */
+    line: string;
   };
 
   /**
@@ -432,7 +432,7 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 列出当前排轴上每个**操作块 / 参考线**绑定的伤害：targetType、目标序号、伤害块 id、直伤命中（1 起的 hitIndex、角色、技能类型、命中名、倍率、属性、段数）与非直伤条目。用于定位要解绑/修改的具体一条命中。
+   * 列出当前排轴上每个**操作块 / 参考线**绑定的伤害：targetType、目标短索引、目标内部 id、伤害块 id、直伤命中（每条的 hitKey、角色、技能类型、命中名、倍率、属性、段数）与非直伤条目。用于定位要解绑/修改的具体一条命中；hitKey 由命中身份派生，其它命中增删、或改倍率/属性/段数之后都**不变**。
    */
   get_damage_bindings: Record<string, never>;
 
@@ -511,7 +511,7 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 查询时间参考线记点状态：哪些参考线已启用为时间记点、各自的秒数（null=未填写/未解析，不参与 DPS 分段）。秒数来源：自动推导（从参考线命名解析）或自定义覆盖。结果按参考线在时间轴上的位置排序，并给出**序号**。**可跨工程只读**：传 projectId 读任意工程且不切换当前工程。
+   * 查询时间参考线记点状态：哪些参考线已启用为时间记点、各自的秒数（null=未填写/未解析，不参与 DPS 分段）。秒数来源：自动推导（从参考线命名解析）或自定义覆盖。结果按参考线在时间轴上的位置排序，并给出**短索引**与内部 id。**可跨工程只读**：传 projectId 读任意工程且不切换当前工程。
    */
   get_ref_line_timings: {
     /** 可选：工程 id；传了则只读该工程，不切换活动工程 */
@@ -596,7 +596,7 @@ export interface CoconutToolParams {
   get_team_catalog: Record<string, never>;
 
   /**
-   * **按需**查询排轴里每个已绑定伤害的**倍率明细**（命中名、倍率、属性、系数类型；含效应/处决/响应的折算结果），按排轴顺序编号，每行一条；序号与排轴位置不代表秒数。只想看排轴结构（哪些块、绑了什么）请用 get_timeline_summary —— 那里不含倍率，避免无谓的 token 开销。**可跨工程只读**：传 projectId 读任意工程且不切换当前工程。
+   * **按需**查询排轴里每个已绑定伤害的**倍率明细**（命中名、倍率、属性、系数类型；含效应/处决/响应的折算结果），按排轴顺序排列，每行一条（行首编号仅用于本清单，不能用于定位）。只想看排轴结构（哪些块、绑了什么）请用 get_timeline_summary —— 那里不含倍率，避免无谓的 token 开销。**可跨工程只读**：传 projectId 读任意工程且不切换当前工程。
    */
   get_timeline_damage_list: {
     /** 可选：工程 id；传了则只读该工程，不切换活动工程 */
@@ -606,12 +606,12 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 获取排轴：**按排轴顺序**列出所有操作块、参考线与已绑定的伤害。每行给出序号、轨道与角色、操作内容，其下缩进列出该块绑定的伤害命中（只给命中名，**不含倍率**——倍率用 get_timeline_damage_list 按需查）。排轴位置只是定位坐标，不代表秒数；参考线时间优先取数据分析配置的有效记点，没有有效记点时按“时间记点自动配置”规则从名称推导，并标为自动推导。**可跨工程只读**：传 projectId 读任意工程的持久化排轴且不切换当前工程（结构与绑定名；倍率明细用 get_timeline_damage_list 同样传 projectId 查）；省略则读活动工程。
+   * 获取排轴：**按排轴顺序**列出所有操作块、参考线与已绑定的伤害。每行行首方括号里是 5 位**短索引**（如 `[块 xlm8n]`、`[线 jidwl]`），它是内部 id 的派生投影，**移动 / 删除都不会改变**，所有排轴写工具的 block / line 参数就填它；其后是轨道与角色、操作内容，其下缩进列出该块绑定的伤害命中（只给命中名，**不含倍率**——倍率用 get_timeline_damage_list 按需查）。参考线行尾可能带 `[边界·起点·不可移动]`（左边界锚点）或 `[边界·结束线·可左右移动]`（时间轴右边界）：两者都不可删除，起点不可移动；行首短索引的写法
    */
   get_timeline_summary: {
     /** 可选：读取指定工程（用 list_projects 获取），不切换当前工程；省略 = 当前活动工程 */
     projectId?: string;
-    /** 输出格式：text（默认，便于阅读）或 json（结构化 items，便于解析） */
+    /** 输出格式：text（默认，便于阅读）或 json（结构化 items，每项另带 shortKey 短索引与内部 id） */
     format?: "text" | "json";
   };
 
@@ -775,37 +775,37 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 把已有操作块移动到指定位置（按**序号**）：position 为 {time: 秒}（绝对时间 0 至当前结束线）或 {anchor: 块序号, side: before/after（默认 after）, offset?: 秒}（相对某块）。移动后自动消除同轨道重叠。
+   * 把已有操作块移动到指定位置（按**短索引**）：position 为 {pos: 排轴坐标}（取值见 get_timeline_summary 的 format=json 输出 items[].pos，0 至当前结束线）或 {anchor: 块短索引, side: before/after（默认 after）, offset?: 坐标偏移}（相对某块）。排轴位置只是定位坐标，与秒数无关。移动后自动消除同轨道重叠。
    */
   move_op_block: {
-    /** 要移动的操作块序号 */
-    block: number;
-    /** 把操作块移动到哪个时间位置：{time: 秒}（绝对时间 0 至当前结束线）或 {anchor: 块序号, side, offset}（相对某块） */
+    /** 要移动的操作块短索引 */
+    block: string;
+    /** 把操作块移动到哪个位置：{pos: 排轴坐标}（绝对位置，0 至当前结束线）或 {anchor: 块短索引, side, offset}（相对某块） */
     position: {
-      /** 绝对时间（秒，0 至当前结束线） */
-      time?: number;
-      /** 目标操作块序号（相对它移动） */
+      /** 排轴坐标（与摘要里的 pos 同坐标系，0 至当前结束线） */
+      pos?: number;
+      /** 目标操作块短索引（相对它移动） */
       anchor?: number;
       side?: "before" | "after";
-      /** 相对偏移（秒，默认 0） */
+      /** 相对偏移（坐标，默认 0） */
       offset?: number;
     };
   };
 
   /**
-   * 把已有参考线移动到指定位置（按**序号**）：position 为 {time: 秒}（绝对时间 0 至当前结束线）或 {anchor: 块序号, side: before/after, offset?: 秒}（相对某块）。与相邻参考线保持最小间距，过近会报错。
+   * 把已有参考线移动到指定位置（按**短索引**）：position 为 {pos: 排轴坐标}（取值见 get_timeline_summary 的 format=json 输出 items[].pos，0 至当前结束线）或 {anchor: 块短索引, side: before/after, offset?: 坐标偏移}（相对某块）。排轴位置只是定位坐标，与秒数无关。**结束线（right）可以左右移动**，它就是时间轴右边界、右移无上限；左边界起点（left）不可移动；与相邻参考线保持最小间距，过近会报错。
    */
   move_ref_line: {
-    /** 参考线序号（见 get_timeline_summary 的「[线N]」） */
-    line: number;
-    /** 把参考线移动到哪个时间位置：{time: 秒}（绝对时间 0 至当前结束线）或 {anchor: 块序号, side, offset}（相对某块） */
+    /** 参考线短索引（见 get_timeline_summary 的「[线 xxxx]」） */
+    line: string;
+    /** 把参考线移动到哪个位置：{pos: 排轴坐标}（绝对位置，0 至当前结束线）或 {anchor: 块短索引, side, offset}（相对某块） */
     position: {
-      /** 绝对时间（秒，0 至当前结束线） */
-      time?: number;
-      /** 目标操作块序号（相对它移动） */
+      /** 排轴坐标（与摘要里的 pos 同坐标系，0 至当前结束线） */
+      pos?: number;
+      /** 目标操作块短索引（相对它移动） */
       anchor?: number;
       side?: "before" | "after";
-      /** 相对偏移（秒，默认 0） */
+      /** 相对偏移（坐标，默认 0） */
       offset?: number;
     };
   };
@@ -874,24 +874,24 @@ export interface CoconutToolParams {
   remove_damage_from_target: {
     /** 目标类型（默认 block） */
     targetType?: "block" | "refLine";
-    /** 目标序号（操作块或参考线） */
-    block: number;
+    /** 目标短索引（操作块或参考线，取值见 get_timeline_summary） */
+    block: string;
   };
 
   /**
-   * 删除指定操作块（按**序号**）。删除后其余块的序号会前移，后续操作请重新读 get_timeline_summary。
+   * 删除指定操作块（按**短索引**）。其它块的短索引不受影响（由内部 id 派生，永不改变），无需重读摘要。
    */
   remove_op_block: {
-    /** 操作块序号（见 get_timeline_summary 的「[块N]」） */
-    block: number;
+    /** 操作块短索引（见 get_timeline_summary 的「[块 xxxx]」） */
+    block: string;
   };
 
   /**
-   * 删除指定参考线（按**序号**）。删除后其余参考线的序号会前移，后续操作请重新读 get_timeline_summary。
+   * 删除指定参考线（按**短索引**）。左/右边界锚点（起点与结束线）不可删除，会明确报错。其它参考线的短索引不受影响（由内部 id 派生，永不改变），无需重读摘要。
    */
   remove_ref_line: {
-    /** 参考线序号 */
-    line: number;
+    /** 参考线短索引 */
+    line: string;
   };
 
   /**
@@ -1064,21 +1064,21 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 修改指定操作块的按键（按**序号**）。key 可用：普攻/重击/闪避/跳跃/共鸣技能/共鸣解放/声骸技能/谐度破坏 或字母。
+   * 修改指定操作块的按键（按**短索引**）。key 可用：普攻/重击/闪避/跳跃/共鸣技能/共鸣解放/声骸技能/谐度破坏 或字母。
    */
   set_block_key: {
-    /** 操作块序号 */
-    block: number;
+    /** 操作块短索引 */
+    block: string;
     /** 新按键名 */
     key: string;
   };
 
   /**
-   * 设置指定操作块的变奏标记（按**序号**）：intro=变奏入场、switchback=切回、none=取消。
+   * 设置指定操作块的变奏标记（按**短索引**）：intro=变奏入场、switchback=切回、none=取消。
    */
   set_block_special: {
-    /** 操作块序号 */
-    block: number;
+    /** 操作块短索引 */
+    block: string;
     /** 特殊标记：none=无，intro=变奏（入场），switchback=切回 */
     kind: "none" | "intro" | "switchback";
   };
@@ -1140,7 +1140,7 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 设置工程 Buff 配置内指定乘区的引用（跟随某角色的属性按百分比折算），ref 为 null 时清除引用。ref 结构：{"targetZoneId":"引用目标","pct":百分比,"characterIdx":槽位 1-3,"threshold":阈值,"lower"/"upper"/"discrete"/"divisor"/"multiplier"可选}。targetZoneId 可选：baseAtk/totalAtk/baseHp/totalHp/baseDef/totalDef/recharge/tuneBreakBoost/offTuneBuildupRate/critRate
+   * 设置工程 Buff 配置内指定乘区的引用（跟随某角色的属性按百分比折算），ref 为 null 时清除引用。ref 结构：{"targetZoneId":"引用目标","pct":百分比(离散转模可不写),"characterIdx":槽位 1-3,"threshold":阈值,"lower"/"upper"/"discrete"/"divisor"/"multiplier"可选}。离散转模（「每 X 点转 Y」）写 discrete=true + divisor=X + multiplier=Y，此时 pct 省略（按 0 处理）。targetZoneId 可选：baseAtk/totalA
    */
   set_buff_conf_zone_ref: {
     /** 工程 Buff 配置序号 */
@@ -1150,6 +1150,7 @@ export interface CoconutToolParams {
     /** 引用定义或 null 清除 */
     ref?: {
       targetZoneId?: string;
+      /** 线性转模百分比；离散转模（discrete）可省略 */
       pct?: number;
       /** 引用角色槽位 1-3 */
       characterIdx?: number;
@@ -1233,11 +1234,11 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 设置已启用记点的秒数（按**序号**）。mode=auto：按参考线命名自动推导（清空自定义覆盖，回到自动解析值；命名无时间片段则秒数为 null「未填写」）；mode=custom：手动填秒数（须 ≥ 0，负数/空串视为清除→null「未填写」）。若该参考线尚未启用，会先自动启用再设秒数。
+   * 设置已启用记点的秒数（按**短索引**）。mode=auto：按参考线命名自动推导（清空自定义覆盖，回到自动解析值；命名无时间片段则秒数为 null「未填写」）；mode=custom：手动填秒数（须 ≥ 0，负数/空串视为清除→null「未填写」）。若该参考线尚未启用，会先自动启用再设秒数。
    */
   set_ref_line_timing_seconds: {
-    /** 参考线序号 */
-    line: number;
+    /** 参考线短索引 */
+    line: string;
     /** auto=自动推导（从命名解析），custom=自定义秒数 */
     mode: "auto" | "custom";
     /** 秒数（mode=custom 时必填，≥0；留空/负数→清除为 null 未填写） */
@@ -1386,15 +1387,15 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 从指定操作块 / 参考线解绑**一条**直伤命中（保留该目标上的其它伤害）。先用 get_damage_bindings 查 hitIndex（1 起）。
+   * 从指定操作块 / 参考线解绑**一条**直伤命中（保留该目标上的其它伤害）。先用 get_damage_bindings 查该条命中的 hitKey。
    */
   unbind_damage_hit: {
     /** 目标类型（默认 block） */
     targetType?: "block" | "refLine";
-    /** 目标序号（操作块或参考线） */
-    block: number;
-    /** 该目标直伤命中列表里的序号（1 起） */
-    hitIndex: number;
+    /** 目标短索引（操作块或参考线，取值见 get_timeline_summary） */
+    block: string;
+    /** 该条命中的 hitKey（见 get_damage_bindings） */
+    hit: string;
   };
 
   /**
@@ -1452,15 +1453,15 @@ export interface CoconutToolParams {
   };
 
   /**
-   * 修改某个操作块/参考线上**已有的一条直伤命中**的倍率、属性或段数（用 get_damage_bindings 查 hitIndex）。倍率的基础类型必须保持不变（只改数值/段数），否则会改变底层条目 id 并让 Buff 绑定失效 —— 这种情况会明确拒绝；改名请用 rename_damage_entry。
+   * 修改某个操作块/参考线上**已有的一条直伤命中**的倍率、属性或段数（用 get_damage_bindings 查 hitKey）。倍率的基础类型必须保持不变（只改数值/段数），否则会改变底层条目 id 并让 Buff 绑定失效 —— 这种情况会明确拒绝；改名请用 rename_damage_entry。hitKey 不含倍率/属性/段数，所以改完仍可用同一个 hitKey 再次操作。
    */
   update_damage_hit: {
     /** 目标类型（默认 block） */
     targetType?: "block" | "refLine";
-    /** 目标序号（操作块或参考线） */
-    block: number;
-    /** 该目标直伤命中列表里的序号（1 起） */
-    hitIndex: number;
+    /** 目标短索引（操作块或参考线，取值见 get_timeline_summary） */
+    block: string;
+    /** 该条命中的 hitKey（见 get_damage_bindings） */
+    hit: string;
     /** 新的倍率串（如 "120%" / "80%攻击+20%生命"）；基础类型须与原来一致 */
     ratio?: string;
     /** 新的伤害属性 */

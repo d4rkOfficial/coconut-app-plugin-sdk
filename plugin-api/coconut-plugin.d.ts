@@ -44,8 +44,17 @@ export interface CoconutPluginMeta {
 export interface CoconutHelloInfo {
   /** 这一条 WS 会话的 id（字符串） */
   session: string;
-  /** 工具箱当前注册的工具名列表（含 run_js 等） */
-  tools: string[];
+  /**
+   * 工具箱当前注册的工具列表。
+   *
+   * 不同工具箱版本给的东西不一样：可能是工具名字符串，也可能是
+   * `{ type: 'function', function: { name, description, parameters } }` 定义。
+   * 取名字时两种都兼容一下：
+   * ```js
+   * const name = typeof item === 'string' ? item : item.function?.name;
+   * ```
+   */
+  tools: Array<string | { name?: string; function?: { name?: string } }>;
 }
 
 /** 启动器主动触发「重新同步」（免费模型插件就靠这个）。 */
@@ -271,7 +280,7 @@ export interface CoconutToolbox {
    * - 传字符串：当作函数体，必须自己 `return`；
    * - 传函数对象：源码送到页面执行，后面的参数 JSON 序列化后传进去。
    *   函数必须**自包含**（闭包变量在页面里不存在），且不能是 async 函数。
-   * - 传 `<script>` JSX 片段（`{ __coconut: 'script', text }`）也可以。
+   * - 传 `script` 片段（`script` 标签模板，即 `<script>` 的替代写法）也可以。
    *
    * 需要 dom 权限。
    */
@@ -283,7 +292,7 @@ export interface CoconutToolbox {
   exit(): true;
 }
 
-/** JSX 运行时产出的片段：`<script>` / `<html>` / `<style>`。 */
+/** JSX 运行时产出的片段：`html`（普通 JSX / html 模板）、`css`、`script`。 */
 export interface CoconutJsxChunk<K extends 'script' | 'html' | 'css' = 'script' | 'html' | 'css'> {
   readonly __coconut: K;
   readonly text: string;
@@ -502,14 +511,23 @@ export interface CoconutContext {
   /**
    * 生命周期事件监听器：与 onStart / onHello / onEvent / onStop 等价。
    * `Coconut` 本身是事件对象，可重复添加，也可用 removeEventListener 移除。
+   *
+   * 注意：监听器拿到的是**事件对象**，数据在 `event.detail` 里；
+   * 全局钩子 `onHello(info)` 才直接拿 info。
+   * ```js
+   * Coconut.addEventListener('hello', (event) => {
+   *   const tools = event.detail.tools;
+   * });
+   * ```
    */
   addEventListener<K extends CoconutLifecycleEventName>(
     type: K,
-    listener: (event: CoconutLifecycleEventMap[K]) => void | Promise<void>,
+    listener: (event: CoconutEventObject<CoconutLifecycleEventMap[K]>) => void | Promise<void>,
+    options?: CoconutAddEventListenerOptions,
   ): this;
   removeEventListener<K extends CoconutLifecycleEventName>(
     type: K,
-    listener: (event: CoconutLifecycleEventMap[K]) => void | Promise<void>,
+    listener: (event: CoconutEventObject<CoconutLifecycleEventMap[K]>) => void | Promise<void>,
   ): this;
 
   /**
@@ -539,18 +557,176 @@ declare global {
   var onBye: ((info?: { session?: string }) => void | Promise<void>) | undefined;
   var onStop: (() => void | Promise<void>) | undefined;
 
-  /* JSX：`.jsx` / `.tsx` 里可以写裸标签，由 plugin-api/jsx.ts 的 h() 认领。
-     - <script>…</script> → Coconut.toolbox.runJs(...)
-     - <html>…</html>     → Coconut.ui.overlay({ html })
-     - <style>…</style>   → Coconut.ui.overlay({ css })
-     其它标签渲染成 HTML 字符串。文件里记得 `import { h, Fragment } from '.../plugin-api/jsx.ts'`。 */
+  /* JSX：`.jsx` / `.tsx` 里写普通 HTML 标签即可（由 plugin-api/jsx.ts 的 h() 认领），
+     JSX 表达式产出 HTML 片段，直接给 Coconut.ui.overlay({ html })。
+     浮层 CSS 用 `css` 标签模板、页面脚本用 `script` 标签模板（都从 jsx.ts 导入）：
+       const view = <div class='card'>{title}</div>;
+       const skin = css`.card { color: #fff }`;
+       const boot = script`document.body.dataset.ready = '1'`;
+     旧写法 <html> / <style> / <script> 仍然兼容，但不建议在新代码里用。
+
+     下面这些属性类型只是为了**补全**：写着 `[attribute: string]: unknown` 兜底，
+     所以拼错的属性不会报错，但常用标签 / 属性会有提示。 */
   namespace JSX {
-    type Element = string | import('./coconut-plugin.d.ts').CoconutJsxChunk;
+    /** JSX 表达式的结果：HTML 片段（`Markup`，可当字符串用）。 */
+    type Element = CoconutJsxChunk<'html'>;
     interface ElementChildrenAttribute {
-      children: Record<never, never>;
+      children: unknown;
+    }
+    /** 行内样式：`style={{ left: '1px' }}` → `left:1px`。 */
+    interface CoconutJsxStyle {
+      [property: string]: string | number | null | undefined | false;
+    }
+    /** 所有 HTML 标签共用的属性。浮层是静态 HTML，所以没有事件属性。 */
+    interface CoconutJsxProps {
+      children?: unknown;
+      class?: string;
+      className?: string;
+      id?: string;
+      title?: string;
+      role?: string;
+      lang?: string;
+      dir?: string;
+      hidden?: boolean;
+      tabIndex?: number;
+      tabindex?: number;
+      style?: CoconutJsxStyle | string;
+      [attribute: string]: unknown;
+    }
+    interface CoconutJsxAnchorProps extends CoconutJsxProps {
+      href?: string;
+      target?: string;
+      rel?: string;
+      download?: string | boolean;
+    }
+    interface CoconutJsxImageProps extends CoconutJsxProps {
+      src?: string;
+      alt?: string;
+      width?: number | string;
+      height?: number | string;
+      loading?: 'lazy' | 'eager';
+      decoding?: 'sync' | 'async' | 'auto';
+    }
+    interface CoconutJsxInputProps extends CoconutJsxProps {
+      type?: string;
+      name?: string;
+      value?: string | number;
+      placeholder?: string;
+      checked?: boolean;
+      disabled?: boolean;
+      readonly?: boolean;
+      min?: string | number;
+      max?: string | number;
+      step?: string | number;
+    }
+    interface CoconutJsxButtonProps extends CoconutJsxProps {
+      type?: 'button' | 'submit' | 'reset';
+      name?: string;
+      value?: string;
+      disabled?: boolean;
+    }
+    interface CoconutJsxLabelProps extends CoconutJsxProps {
+      for?: string;
+      htmlFor?: string;
+    }
+    interface CoconutJsxOptionProps extends CoconutJsxProps {
+      value?: string;
+      selected?: boolean;
+      disabled?: boolean;
+    }
+    interface CoconutJsxCellProps extends CoconutJsxProps {
+      colspan?: number;
+      rowspan?: number;
+      colSpan?: number;
+      rowSpan?: number;
+    }
+    interface CoconutJsxMetaProps extends CoconutJsxProps {
+      charset?: string;
+      name?: string;
+      content?: string;
+      httpEquiv?: string;
+    }
+    interface CoconutJsxLinkProps extends CoconutJsxProps {
+      rel?: string;
+      href?: string;
+      type?: string;
+      crossorigin?: string;
+    }
+    interface CoconutJsxSvgProps extends CoconutJsxProps {
+      viewBox?: string;
+      width?: number | string;
+      height?: number | string;
+      fill?: string;
+      stroke?: string;
     }
     interface IntrinsicElements {
-      [tag: string]: Record<string, unknown>;
+      a: CoconutJsxAnchorProps;
+      img: CoconutJsxImageProps;
+      input: CoconutJsxInputProps;
+      button: CoconutJsxButtonProps;
+      label: CoconutJsxLabelProps;
+      option: CoconutJsxOptionProps;
+      td: CoconutJsxCellProps;
+      th: CoconutJsxCellProps;
+      meta: CoconutJsxMetaProps;
+      link: CoconutJsxLinkProps;
+      svg: CoconutJsxSvgProps;
+
+      /* 兼容旧写法的三个裸标签（见 plugin-api/jsx.ts 顶部说明） */
+      html: CoconutJsxProps;
+      style: CoconutJsxProps;
+      script: CoconutJsxProps;
+
+      /* 其余常用标签：属性走同一套兜底类型 */
+      div: CoconutJsxProps;
+      span: CoconutJsxProps;
+      p: CoconutJsxProps;
+      b: CoconutJsxProps;
+      i: CoconutJsxProps;
+      em: CoconutJsxProps;
+      strong: CoconutJsxProps;
+      small: CoconutJsxProps;
+      u: CoconutJsxProps;
+      s: CoconutJsxProps;
+      code: CoconutJsxProps;
+      pre: CoconutJsxProps;
+      br: CoconutJsxProps;
+      hr: CoconutJsxProps;
+      ul: CoconutJsxProps;
+      ol: CoconutJsxProps;
+      li: CoconutJsxProps;
+      h1: CoconutJsxProps;
+      h2: CoconutJsxProps;
+      h3: CoconutJsxProps;
+      h4: CoconutJsxProps;
+      h5: CoconutJsxProps;
+      h6: CoconutJsxProps;
+      section: CoconutJsxProps;
+      header: CoconutJsxProps;
+      footer: CoconutJsxProps;
+      nav: CoconutJsxProps;
+      main: CoconutJsxProps;
+      aside: CoconutJsxProps;
+      article: CoconutJsxProps;
+      form: CoconutJsxProps;
+      fieldset: CoconutJsxProps;
+      legend: CoconutJsxProps;
+      select: CoconutJsxProps;
+      textarea: CoconutJsxProps;
+      table: CoconutJsxProps;
+      thead: CoconutJsxProps;
+      tbody: CoconutJsxProps;
+      tfoot: CoconutJsxProps;
+      tr: CoconutJsxProps;
+      colgroup: CoconutJsxProps;
+      canvas: CoconutJsxProps;
+      video: CoconutJsxProps;
+      audio: CoconutJsxProps;
+      source: CoconutJsxProps;
+      iframe: CoconutJsxProps;
+
+      /** 其它标签按普通 HTML 属性处理 */
+      [tag: string]: CoconutJsxProps;
     }
   }
 

@@ -7,8 +7,9 @@
 - **现成示例**：本机正在用的插件源码（`buff-coverage` / `echo-substat-optimizer` /
   `cjk-scramble`）， 外加从启动器内置迁出的 `free-models`（多文件范本，自带 HTTP 服务）；
 - **热重载**：`deno task dev <id>` 保存即打包并写进启动器插件目录，3 秒内生效；
-- **静态自查 + 冒烟测试**：权限 / 头部 / 钩子 / 禁用 API 检查、`.dom.js` 自包含检查，
-  以及用「假宿主 + 假页面」跑打包产物的回归测试。
+- **静态自查 + 插件测试**：权限 / 头部 / 生命周期 / 禁用 API 检查、`.dom.js` 自包含检查，
+  以及用「假宿主 + 假页面」跑**你自己 `dev/<id>/test.js`** 的测试沙箱。
+- **用户项目和示例分开**：自己的插件放 `dev/<id>/`（gitignored），`examples/` 只放官方示例。
 
 > 启动器本体（Tauri 外壳 + 工具箱静态包）在另一个仓库，本仓库只做插件侧。 API 规范看
 > [`docs/plugin-api.md`](docs/plugin-api.md)，干活规则看 [`AGENTS.md`](AGENTS.md)。
@@ -37,9 +38,11 @@
 ## 快速开始
 
 ```powershell
-deno task check                        # 静态自查（头部/权限/钩子/禁用 API/.dom.js 自包含）
-deno task build                        # 打包全部示例 → dist/*.js（压缩后的单文件）
-deno task dev echo-substat-optimizer   # 监听源码并自动部署到启动器（热重载）
+deno task new my-plugin                # 从模板生成 dev/my-plugin/（含 test.js）
+deno task check                        # 静态自查（头部/权限/生命周期/禁用 API/.dom.js 自包含）
+deno task build                        # 打包全部插件 → dist/*.js（压缩后的单文件）
+deno task test my-plugin               # 跑 dev/my-plugin/test.js（会自动先打包）
+deno task dev my-plugin                # 监听源码并自动部署到启动器（热重载）
 ```
 
 插件日志在 `%APPDATA%\com.coconut.launcher\logs\plugins.log`；工具箱页面按 `Ctrl+T`
@@ -49,21 +52,23 @@ deno task dev echo-substat-optimizer   # 监听源码并自动部署到启动器
 
 | 命令                     | 说明                                                               |
 | ------------------------ | ------------------------------------------------------------------ |
-| `deno task build`        | 打包 `examples/*/index.js` → `dist/*.js`（压缩）                   |
+| `deno task build`        | 打包 `dev/` + `examples/` 里的插件 → `dist/*.js`（压缩）            |
 | `deno task build:plain`  | 同上但不压缩（看产物 / 排错）                                      |
 | `deno task build <id>`   | 只打指定插件                                                       |
 | `deno task dev <id…>`    | 监听 + 打包 + 部署到启动器（`--dir` 换目录，`--no-deploy` 只重建） |
 | `deno task deploy <id…>` | 把 `dist/<id>.js` 装进启动器（缺产物会先打包；`--dry` 只打印）     |
 | `deno task pull --list`  | 列出启动器里已安装的插件                                           |
-| `deno task pull <id>`    | 把已安装插件拉回 `examples/<id>/index.js`                          |
-| `deno task new <id>`     | 从模板新建插件骨架                                                 |
+| `deno task pull <id>`    | 把已安装插件拉回 `dev/<id>/index.js`                               |
+| `deno task new <id>`     | 从模板新建插件骨架到 `dev/<id>/`                                   |
 | `deno task check`        | 静态自查；`check:strict` 把提示也算失败（CI 用）                   |
-| `deno task test`         | 冒烟测试：假宿主 + 假页面跑打包产物                                |
-| `deno task typecheck`    | `deno check`（示例 / 模板 / 脚本）                                 |
+| `deno task test`         | 跑 `dev/` 下所有 `test.js`（先自动打包）                           |
+| `deno task test <id…>`   | 只跑指定插件的用户测试                                             |
+| `deno task test:examples` | 官方示例的回归测试（不是用户测试）                                |
+| `deno task typecheck`    | `deno check`（示例 / 模板 / 脚本 / 测试）                          |
 | `deno task fmt` / `lint` | 格式化 / lint（`plugin-api/` 不动）                                |
 | `deno task tools`        | 工具箱更新后重新生成 `plugin-api/tools.d.ts`                       |
 | `deno task clean`        | 删 `dist/`                                                         |
-| `deno task verify`       | 一条命令：fmt 检查 + lint + 自查 + 类型 + 打包 + 测试              |
+| `deno task verify`       | 一条命令：fmt 检查 + lint + 自查 + 类型 + 打包 + 示例测试 + 用户测试 |
 
 插件目录默认 `%APPDATA%\com.coconut.launcher\plugins`，可用 `--dir <目录>` 或环境变量
 `COCONUT_PLUGINS_DIR` 覆盖。
@@ -75,15 +80,19 @@ coconut-app-plugin-sdk/
   AGENTS.md                     ← 人 / AI 都先读这个：硬规则 + 流程 + 自检清单
   docs/plugin-api.md            ← API 规范原文（Coconut.* 全部细节）
   plugin-api/                   ← API 类型声明（本仓库为准；tools.d.ts 为生成物）
-    coconut-plugin.d.ts         ← Coconut / 钩子 / 权限类型
+    coconut-plugin.d.ts         ← Coconut / 生命周期 / 权限 / JSX 属性类型
+    jsx.ts                      ← JSX 运行时（Markup / css / script / html）
     tools.d.ts                  ← 工具箱 WS 工具的类型（自动生成）
     generate-tools.ts           ← 重新生成 tools.d.ts
-  templates/plugin/index.js     ← `deno task new` 用的骨架
-  examples/<id>/                ← 插件源码（目录名 = 插件 id = 产物文件名）
-    index.js                    ← 入口：头部元数据 + 钩子 + 装配
-    *.js                        ← 按功能拆的模块（state / api / render / …）
-    *.jsx                       ← 浮层与页面片段（JSX：<script> / <html> / <style>）
-    page/*.dom.js               ← 注入页面的自包含脚本（直接传给 toolbox.runJs）
+  templates/plugin/             ← `deno task new` 用的骨架（index.js / overlay.jsx / test.js / deno.json）
+  dev/<id>/                     ← 你自己的插件项目（gitignored；目录名 = 插件 id）
+    index.js                    ← 入口：头部元数据 + 生命周期 + 装配（也支持 `.ts` / `.jsx` / `.tsx`）
+    test.js                     ← 用户测试（`deno task test` 跑的入口）
+    *.js / *.jsx                ← 按功能拆的模块；JSX 只写 HTML
+    page/*.dom.js               ← 注入页面的自包含脚本（TypeScript 用 `.dom.ts`）
+  examples/<id>/                ← 官方示例（只读参考，同样参与 build/check/test:examples）
+  tests/harness.ts              ← 测试沙箱（假 DOM + 假 Coconut + 断言）
+  tests/examples.test.ts        ← 官方示例回归测试（deno task test:examples）
   scripts/                      ← build / dev / deploy / pull / new / check / test / clean
   dist/                         ← 打包产物（不入库）
 ```
@@ -96,6 +105,7 @@ coconut-app-plugin-sdk/
 | `echo-substat-optimizer` | toolbox, ui, dom                       | `state` `api` `config` `slots` `search` `optimize` `overlay` `theme` `detect` + 5 个页面脚本；大量 `tools.call` 编排、快照/还原、预算控制 |
 | `cjk-scramble`           | dom                                    | `chars` + 2 个页面脚本；`toolbox.runJs` 注入自包含页面逻辑 + `MutationObserver`                                                           |
 | `free-models`            | toolbox, dom, storage, network, server | `constants` `log` `models` `openai` `server` `profiles` `sync` `page` + 3 个页面脚本；自带 OpenAI 兼容服务、上游模型缓存、SSE 转换        |
+| `tool-tester`            | toolbox, ui, dom                       | `index.ts` + `ui.tsx` + `page/*.dom.ts`；页面侧用 `Coconut.src.toolbox.url` fetch 工具箱 chunk、按 generate-tools 的规则解析 JSON Schema，自动生成字段表单（枚举下拉）、拖动/悬浮球、赛博朋克旋转流光边框 |
 
 ## 打包做了什么
 
@@ -132,24 +142,44 @@ const result = await Coconut.toolbox.runJs(applyThing, someData);
 `deno task check` 会：报错任何 `.dom.js` 里的 `import` / 模块级 `const`，
 并在沙箱里把函数跑一遍，抓「引用了页面不存在的全局」这类忘了传参数的问题。
 
-## JSX 片段（`.jsx` / `.tsx`）
+## JSX（`.jsx` / `.tsx`）
 
-三个裸标签直接产出引擎认识的东西，不用再手拼 HTML 字符串：
+**一个标签只干一件事**：JSX 只写 HTML，CSS / 页面脚本用标签模板。顶层标签直接产出 HTML
+片段（不用再包 `<html>`），自动转义文本，直接交给 `ui.overlay`：
 
 ```jsx
-import { Fragment, h } from '../../plugin-api/jsx.ts';
+import { css, h, script } from '../../plugin-api/jsx.ts'; // h 是 JSX 工厂，必须导入
 
-const view = (
-  <html>
-    <div class='card'>{title}</div>
-  </html>
-); // → ui.overlay({ html: view })
-const skin = <style>{`.card{color:#fff}`}</style>; // → ui.overlay({ css: skin })
-const boot = <script>{`document.body.dataset.ok = 1`}</script>; // → toolbox.runJs(boot)
+const view = <div class='card'>{title}</div>; // → ui.overlay({ html: view })
+const skin = css`.card { color: #fff }`; // → ui.overlay({ css: skin })
+const boot = script`document.body.dataset.ok = 1`; // → toolbox.runJs(boot)
 ```
 
-Deno（`deno.json` 的 `jsxFactory: "h"`）和 esbuild（`jsx: 'transform'` + `.jsx/.tsx`
-loader）都配好了， `deno task build` 会正确编译。
+- `css` / `script` 的内容**原样取**，不转义；`html` 标签模板（或 `raw()`）用来插入现成 HTML；
+- JSX 里嵌套的片段不会二次转义，文本子节点 / `{}` 插值会自动转义 `< > &`；
+- 旧写法 `<html>` / `<style>` / `<script>` 仍兼容，但新代码用上面的形式；
+- `.jsx` / `.tsx` 的编译配置在模板的 `deno.json` 里（`jsxFactory: "h"`），esbuild 也配好了。
+
+## 写测试（`dev/<id>/test.js`）
+
+`deno task test` 会发现 `dev/<id>/test.js`，先打包再在「假宿主 + 假页面」里跑；测试沙箱和断言在
+`tests/harness.ts`：
+
+```js
+import { runPluginTests } from '../../tests/harness.ts';
+
+const id = import.meta.dirname.replace(/[\\/]/g, '/').split('/').pop();
+
+await runPluginTests(id, async (t, plugin) => {
+  await t.lifecycle('start'); // 钩子 + addEventListener 都会触发
+  t.check('start 写了日志', plugin.logs.length > 0);
+  t.check('没有多余的浮层', plugin.overlays.length === 0);
+});
+```
+
+- 需要假工具箱 / 假网络时传第三个参数：`{ engine: { callTool, fetch }, page }`；
+- `plugin` 上有 `logs` / `overlays` / `removedOverlays` / `stored` / `runJsCodes` / `hooks` 等；
+- 官方示例的回归测试单独跑：`deno task test:examples`。
 
 ## 与启动器配合
 

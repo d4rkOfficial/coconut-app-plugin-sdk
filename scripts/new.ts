@@ -1,88 +1,96 @@
 /**
- * 从模板新建一个插件：templates/plugin → examples/<id>/
+ * 从模板新建一个插件：templates/plugin → dev/<id>/
  *
  * 用法：
  *   deno task new my-plugin
  *   deno task new my-plugin --name "我的插件" --permissions dom,ui,toolbox
  *
- * 生成后：改 examples/<id>/index.js，然后
+ * 生成后：改 dev/<id>/index.js，然后
  *   deno task build <id>          打包
+ *   deno task test  <id>          在假宿主里跑 dev/<id>/test.js
  *   deno task dev   <id>          监听并自动装进启动器（热重载）
  */
 import {
-  bold,
-  cyan,
-  dim,
-  examplesDir,
-  exists,
-  fail,
-  green,
-  join,
-  log,
-  parseArgs,
-  PERMISSIONS,
-  readText,
-  rel,
-  templatesDir,
-} from './lib.ts';
+    bold,
+    cyan,
+    devDir,
+    dim,
+    examplesDir,
+    exists,
+    fail,
+    green,
+    join,
+    log,
+    parseArgs,
+    PERMISSIONS,
+    readText,
+    rel,
+    templatesDir,
+} from './lib.ts'
 
-const { has, get, rest } = parseArgs();
-const id = String(rest[0] || '').trim();
+const { has, get, rest } = parseArgs()
+const id = String(rest[0] || '').trim()
 
 if (!id) {
-  fail('用法：deno task new <插件id> [--name 显示名] [--permissions dom,ui]');
-  Deno.exit(1);
+    fail('用法：deno task new <插件id> [--name 显示名] [--permissions dom,ui]')
+    Deno.exit(1)
 }
 if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || id.startsWith('_')) {
-  fail(`插件 id 不合法：${id}（字母数字开头，可含 . _ -，不能以 _ 开头）`);
-  log(dim('文件名就是插件 id，会直接显示在启动器插件卡片上'));
-  Deno.exit(1);
+    fail(`插件 id 不合法：${id}（字母数字开头，可含 . _ -，不能以 _ 开头）`)
+    log(dim('文件名就是插件 id，会直接显示在启动器插件卡片上'))
+    Deno.exit(1)
 }
 
-const templateDir = join(templatesDir, 'plugin');
-const templatePath = join(templateDir, 'index.js');
+const templateDir = join(templatesDir, 'plugin')
+const templatePath = join(templateDir, 'index.js')
 if (!exists(templatePath)) {
-  fail(`模板不存在：${rel(templatePath)}`);
-  Deno.exit(1);
+    fail(`模板不存在：${rel(templatePath)}`)
+    Deno.exit(1)
 }
 
-const dest = join(examplesDir, id, 'index.js');
+const destDir = join(devDir, id)
+const dest = join(destDir, 'index.js')
 if (exists(dest)) {
-  fail(`已经存在：${rel(dest)}`);
-  Deno.exit(1);
+    fail(`已经存在：${rel(dest)}`)
+    Deno.exit(1)
+}
+if (exists(join(examplesDir, id))) {
+    fail(`examples/${id} 里已有同名示例；换个 id，或先把它复制出来改。`)
+    Deno.exit(1)
 }
 
-const name = String(get('name', id)).replace(/"/g, '').trim() || id;
+const name = String(get('name', id)).replace(/"/g, '').trim() || id
 const permissions = String(get('permissions', 'dom, ui'))
-  .split(/[,，\s]+/)
-  .map((item) => item.trim())
-  .filter(Boolean);
+    .split(/[,，\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
 
-const unknown = permissions.filter((item) => !PERMISSIONS.includes(item));
+const unknown = permissions.filter((item) => !PERMISSIONS.includes(item))
 if (unknown.length) {
-  fail(`未知权限：${unknown.join(', ')}（可选：${PERMISSIONS.join(' / ')}）`);
-  Deno.exit(1);
+    fail(`未知权限：${unknown.join(', ')}（可选：${PERMISSIONS.join(' / ')}）`)
+    Deno.exit(1)
 }
 
-const template = readText(templatePath);
+const template = readText(templatePath)
 const rendered = template
-  .replace('__NAME__', () => name)
-  .replace('__PERMISSIONS__', () => permissions.join(', '));
+    .replace('__NAME__', () => name)
+    .replace('__PERMISSIONS__', () => permissions.join(', '))
 
-Deno.mkdirSync(join(examplesDir, id), { recursive: true });
-Deno.writeTextFileSync(dest, rendered);
-// 模板目录里的其它文件（比如 overlay.jsx）原样复制过去
+Deno.mkdirSync(destDir, { recursive: true })
+Deno.writeTextFileSync(dest, rendered)
+// 模板目录里的其它文件（overlay.jsx / test.js / deno.json）原样复制过去
 for (const entry of Deno.readDirSync(templateDir)) {
-  if (!entry.isFile || entry.name === 'index.js') continue;
-  Deno.copyFileSync(join(templateDir, entry.name), join(examplesDir, id, entry.name));
+    if (!entry.isFile || entry.name === 'index.js') continue
+    Deno.copyFileSync(join(templateDir, entry.name), join(destDir, entry.name))
 }
 
-log(`${green('✔')} 已创建 ${bold(id)} → ${cyan(rel(dest))}`);
-log(`  显示名：${name}`);
-log(`  权限：${permissions.length ? permissions.join(', ') : '（无）'}`);
-log('');
-log('下一步：');
-log(dim(`  1. 编辑 ${rel(dest)}（需要多文件：page/*.dom.js 放注入页面的代码）`));
-log(dim(`  2. deno task check ${id}        静态自查（头部/权限/钩子/禁用 API）`));
-log(dim(`  3. deno task dev ${id}          监听并自动部署到启动器（3 秒热重载）`));
-log(dim('  4. 工具箱里按 Ctrl+T 看插件日志'));
+log(`${green('✔')} 已创建 ${bold(id)} → ${cyan(rel(dest))}`)
+log(`  显示名：${name}`)
+log(`  权限：${permissions.length ? permissions.join(', ') : '（无）'}`)
+log('')
+log('下一步：')
+log(dim(`  1. 编辑 ${rel(dest)}（需要多文件：page/*.dom.js 放注入页面的代码）`))
+log(dim(`  2. deno task check ${id}        静态自查（头部/权限/生命周期/禁用 API）`))
+log(dim(`  3. deno task test  ${id}        跑 ${rel(join(destDir, 'test.js'))}`))
+log(dim(`  4. deno task dev   ${id}        监听并自动部署到启动器（3 秒热重载）`))
+log(dim('  5. 工具箱里按 Ctrl+T 看插件日志'))

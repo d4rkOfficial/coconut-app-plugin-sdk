@@ -17,12 +17,12 @@ jobs:
         run: deno task typecheck
       - name: 格式 + lint
         run: deno fmt --check && deno lint
-      - name: 静态自查（头部 / 权限 / 钩子 / 禁用 API / .dom.js 自包含）
+      - name: 静态自查（头部 / 权限 / 生命周期 / 禁用 API / .dom.js 自包含）
         run: deno task check:strict
       - name: 打包（压缩后的单文件）
         run: deno task build
-      - name: 冒烟测试（假宿主 + 假页面）
-        run: deno task test
+      - name: 示例回归测试（假宿主 + 假页面）
+        run: deno task test:examples
       - uses: actions/upload-artifact@v4
         with:
           name: plugins
